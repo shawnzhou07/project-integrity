@@ -143,7 +143,7 @@ extension LiveCash {
     }
 
     var sessionDate: Date { startTime ?? Date() }
-    var displayLocation: String { location ?? "Unknown Location" }
+    var displayLocation: String { locationEntity?.displayName ?? location ?? "Unknown Location" }
     var displayCurrency: String { currency ?? "USD" }
     var displayGameType: String { gameType ?? "Hold'em" }
 
@@ -355,6 +355,81 @@ func computeStats(
             result.adjustmentsTotal = filteredAdj.filter { $0.platform == p }.reduce(0) { $0 + $1.amountBase }
         default: break
         }
+    }
+
+    result.netResult = result.netResultNoAdj + result.adjustmentsTotal
+    return result
+}
+
+// MARK: - FilterState-based computeStats
+
+func computeStats(
+    online: [OnlineCash],
+    live: [LiveCash],
+    adjustments: [Adjustment],
+    filterState: FilterState,
+    showAdjustments: Bool
+) -> StatsResult {
+    var result = StatsResult()
+
+    let filteredOnline = online.filter { filterState.shouldIncludeOnlineForStats($0) }
+    let filteredLive = live.filter { filterState.shouldIncludeLiveForStats($0) }
+
+    for session in filteredOnline {
+        let netBase = session.netProfitLossBase
+        result.netResultNoAdj += netBase
+        result.totalHours += session.computedDuration
+        result.totalHands += session.effectiveHands
+        result.sessionCount += 1
+        if session.netProfitLoss > 0 { result.winCount += 1 } else { result.loseCount += 1 }
+        result.totalBBWon += session.bbWon
+        let rate = session.exchangeRateToBase > 0 ? session.exchangeRateToBase : 1.0
+        result.totalBuyIn += session.balanceBefore * rate
+        if netBase > result.biggestWin { result.biggestWin = netBase }
+        if netBase < result.biggestLoss { result.biggestLoss = netBase }
+        if session.computedDuration > result.longestSessionHours { result.longestSessionHours = session.computedDuration }
+    }
+
+    for session in filteredLive {
+        let netBase = session.netResultBase
+        result.netResultNoAdj += netBase
+        result.totalHours += session.computedDuration
+        result.totalHands += session.effectiveHands
+        result.sessionCount += 1
+        if session.netResult > 0 { result.winCount += 1 } else { result.loseCount += 1 }
+        result.totalBBWon += session.bbWon
+        let buyInBase: Double = session.exchangeRateBuyIn > 0
+            ? session.buyIn * session.exchangeRateBuyIn
+            : session.buyIn * (session.exchangeRateToBase > 0 ? session.exchangeRateToBase : 1.0)
+        result.totalBuyIn += buyInBase
+        let tipsRate: Double = session.exchangeRateCashOut > 0
+            ? session.exchangeRateCashOut
+            : (session.exchangeRateToBase > 0 ? session.exchangeRateToBase : 1.0)
+        result.totalTips += session.tips * tipsRate
+        if netBase > result.biggestWin { result.biggestWin = netBase }
+        if netBase < result.biggestLoss { result.biggestLoss = netBase }
+        if session.computedDuration > result.longestSessionHours { result.longestSessionHours = session.computedDuration }
+    }
+
+    struct SR { let date: Date; let isWin: Bool }
+    var combined: [SR] = []
+    for s in filteredOnline { combined.append(SR(date: s.sessionDate, isWin: s.netProfitLoss > 0)) }
+    for s in filteredLive   { combined.append(SR(date: s.sessionDate, isWin: s.netResult > 0)) }
+    combined.sort { $0.date < $1.date }
+    var curWin = 0, curLose = 0
+    for sr in combined {
+        if sr.isWin {
+            curWin += 1; curLose = 0
+            if curWin > result.longestWinStreak { result.longestWinStreak = curWin }
+        } else {
+            curLose += 1; curWin = 0
+            if curLose > result.longestLoseStreak { result.longestLoseStreak = curLose }
+        }
+    }
+
+    if showAdjustments {
+        let filteredAdj = adjustments.filter { filterState.isDateIncluded($0.date ?? .distantPast) }
+        result.adjustmentsTotal = filteredAdj.reduce(0) { $0 + $1.amountBase }
     }
 
     result.netResult = result.netResultNoAdj + result.adjustmentsTotal

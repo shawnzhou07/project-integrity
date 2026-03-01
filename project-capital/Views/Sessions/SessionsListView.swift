@@ -18,11 +18,6 @@ struct SessionsListView: View {
     ) private var liveSessions: FetchedResults<LiveCash>
 
     @FetchRequest(
-        sortDescriptors: [NSSortDescriptor(keyPath: \Platform.name, ascending: true)],
-        animation: .default
-    ) private var platforms: FetchedResults<Platform>
-
-    @FetchRequest(
         sortDescriptors: [],
         predicate: NSPredicate(format: "startTime != nil AND endTime == nil"),
         animation: .default
@@ -49,17 +44,10 @@ struct SessionsListView: View {
 
     @State private var showActiveSessionAlert = false
     @State private var showUnverifiedAlert = false
-    @State private var filterType: FilterType = .all
-    @State private var selectedPlatformFilter: Platform? = nil
-    @State private var selectedGameTypeFilter: String? = nil
     @State private var navigateToUnverifiedOnline: OnlineCash? = nil
     @State private var navigateToUnverifiedLive: LiveCash? = nil
-
-    enum FilterType: String, CaseIterable {
-        case all = "All"
-        case live = "Live"
-        case online = "Online"
-    }
+    @State private var showFilterSheet = false
+    @StateObject private var filterState = FilterState()
 
     var hasUnverifiedSession: Bool {
         !unverifiedOnlineSessions.isEmpty || !unverifiedLiveSessions.isEmpty
@@ -67,37 +55,17 @@ struct SessionsListView: View {
 
     var allSessions: [SessionListItem] {
         var result: [SessionListItem] = []
-        for s in onlineSessions {
-            if shouldInclude(online: s) {
-                result.append(SessionListItem(id: s.id ?? UUID(), date: s.sessionDate, kind: .online(s)))
-            }
+        for s in onlineSessions where filterState.shouldIncludeOnlineForSessions(s) {
+            result.append(SessionListItem(id: s.id ?? UUID(), date: s.sessionDate, kind: .online(s)))
         }
-        for s in liveSessions {
-            if shouldInclude(live: s) {
-                result.append(SessionListItem(id: s.id ?? UUID(), date: s.sessionDate, kind: .live(s)))
-            }
+        for s in liveSessions where filterState.shouldIncludeLiveForSessions(s) {
+            result.append(SessionListItem(id: s.id ?? UUID(), date: s.sessionDate, kind: .live(s)))
         }
         return result.sorted { $0.date > $1.date }
     }
 
-    func shouldInclude(online s: OnlineCash) -> Bool {
-        switch filterType {
-        case .live: return false
-        case .online, .all: break
-        }
-        if let p = selectedPlatformFilter, s.platform != p { return false }
-        if let gt = selectedGameTypeFilter, s.gameType != gt { return false }
-        return true
-    }
-
-    func shouldInclude(live s: LiveCash) -> Bool {
-        switch filterType {
-        case .online: return false
-        case .live, .all: break
-        }
-        if selectedPlatformFilter != nil { return false }
-        if let gt = selectedGameTypeFilter, s.gameType != gt { return false }
-        return true
+    var totalSessionCount: Int {
+        onlineSessions.count + liveSessions.count
     }
 
     var groupedSessions: [(key: String, sessions: [SessionListItem])] {
@@ -116,18 +84,13 @@ struct SessionsListView: View {
             }
     }
 
-    var uniqueGameTypes: [String] {
-        var types = Set<String>()
-        onlineSessions.compactMap { $0.gameType }.forEach { types.insert($0) }
-        liveSessions.compactMap { $0.gameType }.forEach { types.insert($0) }
-        return types.sorted()
-    }
-
     var body: some View {
         ZStack {
             Color.appBackground.ignoresSafeArea()
             VStack(spacing: 0) {
-                filterBar
+                if filterState.activeFilterCount > 0 {
+                    filterStatusBar
+                }
                 sessionList
             }
         }
@@ -135,15 +98,20 @@ struct SessionsListView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .navigationBarTrailing) {
-                Menu {
-                    Button {
-                        handleAddTap()
-                    } label: {
-                        Label("Cash Game", systemImage: "suit.spade.fill")
+                HStack(spacing: 12) {
+                    FilterNavBarButton(activeCount: filterState.activeFilterCount) {
+                        showFilterSheet = true
                     }
-                } label: {
-                    Image(systemName: "plus")
-                        .foregroundColor(.appGold)
+                    Menu {
+                        Button {
+                            handleAddTap()
+                        } label: {
+                            Label("Cash Game", systemImage: "suit.spade.fill")
+                        }
+                    } label: {
+                        Image(systemName: "plus")
+                            .foregroundColor(.appGold)
+                    }
                 }
             }
         }
@@ -166,51 +134,27 @@ struct SessionsListView: View {
         .navigationDestination(item: $navigateToUnverifiedLive) { session in
             LiveSessionDetailView(session: session)
         }
-        // Floating bar tap routes here — same view as tapping the row directly.
         .navigationDestination(item: $sessionCoordinator.navigateToActiveLiveSession) { session in
             LiveSessionDetailView(session: session)
         }
         .navigationDestination(item: $sessionCoordinator.navigateToActiveOnlineSession) { session in
             OnlineSessionDetailView(session: session)
         }
+        .sheet(isPresented: $showFilterSheet) {
+            FilterSheetView(filterState: filterState, showSessionsOnlyFilters: true)
+                .environment(\.managedObjectContext, viewContext)
+        }
     }
 
-    var filterBar: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 8) {
-                ForEach(FilterType.allCases, id: \.self) { type in
-                    FilterChip(
-                        label: type.rawValue,
-                        isSelected: filterType == type && selectedPlatformFilter == nil && selectedGameTypeFilter == nil
-                    ) {
-                        filterType = type
-                        selectedPlatformFilter = nil
-                        selectedGameTypeFilter = nil
-                    }
-                }
-                if filterType == .online || filterType == .all {
-                    ForEach(Array(platforms), id: \.id) { platform in
-                        FilterChip(
-                            label: platform.displayName,
-                            isSelected: selectedPlatformFilter == platform
-                        ) {
-                            selectedPlatformFilter = selectedPlatformFilter == platform ? nil : platform
-                            selectedGameTypeFilter = nil
-                        }
-                    }
-                }
-                ForEach(uniqueGameTypes, id: \.self) { gt in
-                    FilterChip(
-                        label: gt,
-                        isSelected: selectedGameTypeFilter == gt
-                    ) {
-                        selectedGameTypeFilter = selectedGameTypeFilter == gt ? nil : gt
-                    }
-                }
-            }
-            .padding(.horizontal)
-            .padding(.vertical, 8)
+    var filterStatusBar: some View {
+        HStack {
+            Spacer()
+            Text("Showing \(allSessions.count) of \(totalSessionCount) sessions")
+                .font(.caption)
+                .foregroundColor(.appSecondary)
+            Spacer()
         }
+        .padding(.vertical, 6)
         .background(Color.appBackground)
     }
 

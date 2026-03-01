@@ -1,5 +1,6 @@
 import CoreData
 import Foundation
+import Combine
 
 // MARK: - Platform
 
@@ -115,6 +116,7 @@ public class LiveCash: NSManagedObject {
     @NSManaged public var handsCount: Int32
     @NSManaged public var notes: String?
     @NSManaged public var isVerified: Bool
+    @NSManaged public var locationEntity: Location?
 
     public static func fetchRequest() -> NSFetchRequest<LiveCash> {
         NSFetchRequest<LiveCash>(entityName: "LiveCash")
@@ -122,6 +124,40 @@ public class LiveCash: NSManagedObject {
 }
 
 extension LiveCash: Identifiable {}
+
+// MARK: - Location
+
+@objc(Location)
+public class Location: NSManagedObject {
+    @NSManaged public var id: UUID?
+    @NSManaged public var name: String?
+    @NSManaged public var latitude: Double
+    @NSManaged public var longitude: Double
+    @NSManaged public var createdAt: Date?
+    @NSManaged public var sessions: NSSet?
+
+    public static func fetchRequest() -> NSFetchRequest<Location> {
+        NSFetchRequest<Location>(entityName: "Location")
+    }
+
+    var sessionsArray: [LiveCash] {
+        (sessions?.allObjects as? [LiveCash] ?? [])
+            .sorted { ($0.startTime ?? .distantPast) > ($1.startTime ?? .distantPast) }
+    }
+
+    var displayName: String { name ?? "Unknown Location" }
+}
+
+extension Location {
+    @objc(addSessionsObject:)
+    @NSManaged public func addToSessions(_ value: LiveCash)
+    @objc(removeSessionsObject:)
+    @NSManaged public func removeFromSessions(_ value: LiveCash)
+    @objc(addSessions:)
+    @NSManaged public func addToSessions(_ values: NSSet)
+}
+
+extension Location: Identifiable {}
 
 // MARK: - Deposit
 

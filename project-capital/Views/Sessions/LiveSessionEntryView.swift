@@ -1,6 +1,7 @@
 import SwiftUI
 import CoreData
 import Combine
+import CoreLocation
 
 struct LiveSessionEntryView: View {
     @Environment(\.managedObjectContext) private var viewContext
@@ -20,8 +21,18 @@ struct LiveSessionEntryView: View {
     @State private var startTime = Date()
     @State private var endTime = Date()
 
-    // Form fields
-    @State private var location = ""
+    // Location
+    @State private var selectedLocation: Location? = nil
+    @State private var showLocationPicker = false
+    @StateObject private var locationMgr = LocationManager()
+
+    @FetchRequest(
+        sortDescriptors: [NSSortDescriptor(keyPath: \Location.name, ascending: true)]
+    ) private var allLocations: FetchedResults<Location>
+
+    private var legacyLocationString: String { selectedLocation?.name ?? "" }
+
+    // Form fields (location string field removed, replaced by selectedLocation above)
     @State private var currency = "CAD"
     // Dual exchange rates
     @State private var exchangeRateBuyInStr = ""
@@ -86,11 +97,11 @@ struct LiveSessionEntryView: View {
     }
 
     var isValidForSave: Bool {
-        !location.isEmpty && sbDouble > 0 && bbDouble > 0
+        selectedLocation != nil && sbDouble > 0 && bbDouble > 0
     }
 
     var hasData: Bool {
-        !location.isEmpty || sbDouble > 0 || bbDouble > 0 || !buyIn.isEmpty || !cashOut.isEmpty || !notes.isEmpty
+        selectedLocation != nil || sbDouble > 0 || bbDouble > 0 || !buyIn.isEmpty || !cashOut.isEmpty || !notes.isEmpty
     }
 
     // MARK: - Body
@@ -106,7 +117,7 @@ struct LiveSessionEntryView: View {
             .alert("Required Fields Missing", isPresented: $showRequiredFieldsAlert) {
                 Button("OK", role: .cancel) {}
             } message: {
-                Text("Please fill in Location, SB, and BB before saving.")
+                Text("Please select a Location and fill in SB and BB before saving.")
             }
             .alert("Invalid Session Duration", isPresented: $showZeroDurationAlert) {
                 Button("OK", role: .cancel) {}
@@ -116,6 +127,18 @@ struct LiveSessionEntryView: View {
             .onAppear {
                 currency = baseCurrency
                 if let session = existingSession { loadFromExisting(session) }
+                else { startGPSAutoDetect() }
+            }
+            .sheet(isPresented: $showLocationPicker) {
+                LocationPickerSheet(
+                    selectedLocation: $selectedLocation,
+                    gpsLocation: locationMgr.currentLocation,
+                    onSelectNone: { selectedLocation = nil }
+                )
+                .environment(\.managedObjectContext, viewContext)
+                .onChange(of: selectedLocation) { _, newLoc in
+                    if let newLoc { autoSaveLocationIfActive(newLoc) }
+                }
             }
             .onChange(of: currency) { _, newCurrency in
                 prefillExchangeRate(for: newCurrency)
@@ -206,9 +229,25 @@ struct LiveSessionEntryView: View {
     var locationSection: some View {
         Section {
             HStack {
-                TextField("Casino name or location", text: $location)
+                Text("Location")
                     .foregroundColor(.appPrimary)
-                    .onChange(of: location) { _, _ in autoSaveIfActive() }
+                Spacer()
+                Button {
+                    showLocationPicker = true
+                } label: {
+                    Group {
+                        if locationMgr.isLocating && selectedLocation == nil {
+                            HStack(spacing: 6) {
+                                ProgressView().scaleEffect(0.7).tint(.appSecondary)
+                                Text("Detecting…").foregroundColor(.appSecondary)
+                            }
+                        } else if let loc = selectedLocation {
+                            Text(loc.displayName).foregroundColor(.appPrimary)
+                        } else {
+                            Text("Select").foregroundColor(.appSecondary)
+                        }
+                    }
+                }
             }
             .listRowBackground(Color.appSurface)
 
@@ -508,11 +547,37 @@ struct LiveSessionEntryView: View {
         }
     }
 
+    func startGPSAutoDetect() {
+        let status = CLLocationManager().authorizationStatus
+        guard status == .authorizedWhenInUse || status == .authorizedAlways || status == .notDetermined else { return }
+        locationMgr.startLocating { loc in
+            guard let loc else { return }
+            let nearby = self.allLocations.filter { saved in
+                let c = CLLocation(latitude: saved.latitude, longitude: saved.longitude)
+                return loc.distance(from: c) <= 100
+            }
+            if nearby.count == 1 {
+                self.selectedLocation = nearby.first
+                self.autoSaveLocationIfActive(nearby.first!)
+            } else if nearby.count > 1 {
+                self.showLocationPicker = true
+            }
+        }
+    }
+
+    func autoSaveLocationIfActive(_ loc: Location) {
+        guard entryState == .active, let session = coreDataSession else { return }
+        session.locationEntity = loc
+        session.location = loc.name ?? ""
+        try? viewContext.save()
+    }
+
     func handleStart() {
         startTime = Date()
         let session = LiveCash(context: viewContext)
         session.id = UUID()
-        session.location = location
+        session.location = legacyLocationString
+        session.locationEntity = selectedLocation
         session.currency = currency
         session.exchangeRateBuyIn = exchangeRateBuyIn
         session.exchangeRateCashOut = exchangeRateCashOut
@@ -555,7 +620,8 @@ struct LiveSessionEntryView: View {
 
     func saveFinal() {
         guard let session = coreDataSession else { return }
-        session.location = location
+        session.location = legacyLocationString
+        session.locationEntity = selectedLocation
         session.currency = currency
         session.exchangeRateBuyIn = exchangeRateBuyIn
         session.exchangeRateCashOut = exchangeRateCashOut
@@ -594,7 +660,8 @@ struct LiveSessionEntryView: View {
 
     func autoSaveIfActive() {
         guard entryState == .active, let session = coreDataSession else { return }
-        session.location = location
+        session.location = legacyLocationString
+        session.locationEntity = selectedLocation
         session.currency = currency
         session.exchangeRateBuyIn = exchangeRateBuyIn
         session.exchangeRateCashOut = exchangeRateCashOut
@@ -615,7 +682,7 @@ struct LiveSessionEntryView: View {
 
     func loadFromExisting(_ session: LiveCash) {
         coreDataSession = session
-        location = session.location ?? ""
+        selectedLocation = session.locationEntity
         currency = session.currency ?? baseCurrency
         gameType = session.gameType ?? "No Limit Hold'em"
         tableSize = Int(session.tableSize)

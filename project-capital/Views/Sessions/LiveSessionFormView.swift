@@ -8,7 +8,14 @@ struct LiveSessionFormView: View {
 
     let onSave: () -> Void
 
-    @State private var location = ""
+    // Location
+    @State private var selectedLocation: Location? = nil
+    @State private var showLocationPicker = false
+    @StateObject private var locationMgr = LocationManager()
+    @State private var showPermissionAlert = false
+
+    private var legacyLocationString: String { selectedLocation?.name ?? "" }
+
     @State private var currency = "CAD"
     @State private var exchangeRate = ""
     @State private var gameType = "No Limit Hold'em"
@@ -29,6 +36,10 @@ struct LiveSessionFormView: View {
     @State private var notes = ""
     @State private var showTimeAlert = false
     @State private var showZeroDurationAlert = false
+
+    @FetchRequest(
+        sortDescriptors: [NSSortDescriptor(keyPath: \Location.name, ascending: true)]
+    ) private var allLocations: FetchedResults<Location>
 
     var breakTimeMinutes: Double { Double(breakTimeStr) ?? 0 }
 
@@ -57,7 +68,7 @@ struct LiveSessionFormView: View {
     var bbDouble: Double { Double(bigBlind) ?? 0 }
 
     var isValid: Bool {
-        !location.isEmpty && sbDouble > 0 && bbDouble > 0 && endTime > startTime
+        selectedLocation != nil && sbDouble > 0 && bbDouble > 0 && endTime > startTime
     }
 
     var body: some View {
@@ -77,6 +88,7 @@ struct LiveSessionFormView: View {
             currency = baseCurrency
             prevStartTime = startTime
             prevEndTime = endTime
+            startGPSAutoDetect()
         }
         .alert("Invalid Time Range", isPresented: $showTimeAlert) {
             Button("OK", role: .cancel) {}
@@ -88,18 +100,47 @@ struct LiveSessionFormView: View {
         } message: {
             Text("Start time and end time result in zero or negative duration. Please correct the session times before saving.")
         }
+        .alert("Location Permission Required", isPresented: $showPermissionAlert) {
+            Button("Open Settings") {
+                if let url = URL(string: UIApplication.openSettingsURLString) {
+                    UIApplication.shared.open(url)
+                }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Location access is needed to auto-detect nearby venues. Enable it in Settings.")
+        }
+        .sheet(isPresented: $showLocationPicker) {
+            LocationPickerSheet(
+                selectedLocation: $selectedLocation,
+                gpsLocation: locationMgr.currentLocation,
+                onSelectNone: { selectedLocation = nil }
+            )
+            .environment(\.managedObjectContext, viewContext)
+        }
     }
 
     var locationSection: some View {
         Section {
             HStack {
-                TextField("Casino name or location", text: $location)
+                Text("Location")
                     .foregroundColor(.appPrimary)
+                Spacer()
                 Button {
-                    requestLocation()
+                    showLocationPicker = true
                 } label: {
-                    Image(systemName: "location.fill")
-                        .foregroundColor(.appGold)
+                    Group {
+                        if locationMgr.isLocating && selectedLocation == nil {
+                            HStack(spacing: 6) {
+                                ProgressView().scaleEffect(0.7).tint(.appSecondary)
+                                Text("Detecting…").foregroundColor(.appSecondary)
+                            }
+                        } else if let loc = selectedLocation {
+                            Text(loc.displayName).foregroundColor(.appPrimary)
+                        } else {
+                            Text("Select").foregroundColor(.appSecondary)
+                        }
+                    }
                 }
             }
             .listRowBackground(Color.appSurface)
@@ -329,9 +370,21 @@ struct LiveSessionFormView: View {
         }
     }
 
-    func requestLocation() {
-        let manager = CLLocationManager()
-        manager.requestWhenInUseAuthorization()
+    func startGPSAutoDetect() {
+        let status = CLLocationManager().authorizationStatus
+        guard status == .authorizedWhenInUse || status == .authorizedAlways || status == .notDetermined else { return }
+        locationMgr.startLocating { loc in
+            guard let loc else { return }
+            let nearby = self.allLocations.filter { saved in
+                let c = CLLocation(latitude: saved.latitude, longitude: saved.longitude)
+                return loc.distance(from: c) <= 100
+            }
+            if nearby.count == 1 {
+                self.selectedLocation = nearby.first
+            } else if nearby.count > 1 {
+                self.showLocationPicker = true
+            }
+        }
     }
 
     func saveSession() {
@@ -340,7 +393,8 @@ struct LiveSessionFormView: View {
 
         let session = LiveCash(context: viewContext)
         session.id = UUID()
-        session.location = location
+        session.location = legacyLocationString
+        session.locationEntity = selectedLocation
         session.currency = currency
         let rate = Double(exchangeRate) ?? 1.0
         session.exchangeRateToBase = isSameCurrency ? 1.0 : rate

@@ -91,4 +91,19 @@ struct PersistenceController {
             }
         }
     }
+
+    func deleteLocation(_ location: Location, context: NSManagedObjectContext) {
+        // Nil out the relationship on every attached session; the legacy
+        // location String is already in place as the display fallback.
+        for session in location.sessionsArray {
+            session.locationEntity = nil
+        }
+        context.delete(location)
+        do {
+            try context.save()
+        } catch {
+            let nsError = error as NSError
+            print("Core Data save error deleting location: \(nsError), \(nsError.userInfo)")
+        }
+    }
 }

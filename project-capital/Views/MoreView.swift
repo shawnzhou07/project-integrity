@@ -13,6 +13,14 @@ struct MoreView: View {
             Color.appBackground.ignoresSafeArea()
             List {
                 NavigationLink {
+                    LocationsListView()
+                } label: {
+                    Label("Locations", systemImage: "mappin.and.ellipse")
+                        .foregroundColor(.appPrimary)
+                }
+                .listRowBackground(Color.appSurface)
+
+                NavigationLink {
                     AdjustmentsListView()
                 } label: {
                     Label("Adjustments", systemImage: "plusminus.circle.fill")

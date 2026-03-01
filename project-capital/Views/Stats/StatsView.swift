@@ -17,17 +17,16 @@ struct StatsView: View {
     @FetchRequest(sortDescriptors: [NSSortDescriptor(keyPath: \Platform.name, ascending: true)])
     private var platforms: FetchedResults<Platform>
 
-    @State private var dateFilter: DateFilter = .allTime
-    @State private var sessionFilter: SessionFilter = .all
     @State private var includeAdjustments = true
+    @State private var showFilterSheet = false
+    @StateObject private var filterState = FilterState()
 
     var stats: StatsResult {
         computeStats(
             online: Array(onlineSessions),
             live: Array(liveSessions),
             adjustments: Array(adjustments),
-            dateFilter: dateFilter,
-            sessionFilter: sessionFilter,
+            filterState: filterState,
             showAdjustments: includeAdjustments
         )
     }
@@ -38,8 +37,6 @@ struct StatsView: View {
             ScrollView {
                 VStack(spacing: 16) {
                     netResultHeader
-                    dateFilterBar
-                    sessionFilterBar
                     performanceSection
                     volumeSection
                     resultsSection
@@ -50,6 +47,17 @@ struct StatsView: View {
         }
         .navigationTitle("Statistics")
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .navigationBarTrailing) {
+                FilterNavBarButton(activeCount: filterState.activeFilterCount) {
+                    showFilterSheet = true
+                }
+            }
+        }
+        .sheet(isPresented: $showFilterSheet) {
+            FilterSheetView(filterState: filterState, showSessionsOnlyFilters: false)
+                .environment(\.managedObjectContext, viewContext)
+        }
     }
 
     // MARK: - Net Result Header
@@ -75,51 +83,6 @@ struct StatsView: View {
         .frame(maxWidth: .infinity)
         .background(Color.appSurface)
         .cornerRadius(8)
-    }
-
-    // MARK: - Date Filter Bar
-
-    var dateFilterBar: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 8) {
-                DateFilterChip(label: "All Time",    isSelected: isDateFilter(.allTime))   { dateFilter = .allTime }
-                DateFilterChip(label: "This Month",  isSelected: isDateFilter(.thisMonth)) { dateFilter = .thisMonth }
-                DateFilterChip(label: "This Year",   isSelected: isDateFilter(.thisYear))  { dateFilter = .thisYear }
-            }
-        }
-    }
-
-    func isDateFilter(_ f: DateFilter) -> Bool {
-        switch (dateFilter, f) {
-        case (.allTime, .allTime), (.thisMonth, .thisMonth), (.thisYear, .thisYear): return true
-        default: return false
-        }
-    }
-
-    // MARK: - Session Filter Bar
-
-    var sessionFilterBar: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 8) {
-                SessionFilterChip(label: "All",    isSelected: isFilter(.all))    { sessionFilter = .all }
-                SessionFilterChip(label: "Live",   isSelected: isFilter(.live))   { sessionFilter = .live }
-                SessionFilterChip(label: "Online", isSelected: isFilter(.online)) { sessionFilter = .online }
-                ForEach(Array(platforms)) { platform in
-                    SessionFilterChip(
-                        label: platform.displayName,
-                        isSelected: isFilter(.platform(platform))
-                    ) { sessionFilter = .platform(platform) }
-                }
-            }
-        }
-    }
-
-    func isFilter(_ f: SessionFilter) -> Bool {
-        switch (sessionFilter, f) {
-        case (.all, .all), (.live, .live), (.online, .online): return true
-        case (.platform(let a), .platform(let b)): return a == b
-        default: return false
-        }
     }
 
     // MARK: - Performance Section
@@ -362,46 +325,6 @@ struct PlatformBreakdownRow: View {
             }
         }
         .padding().background(Color.appSurface).cornerRadius(8)
-    }
-}
-
-struct DateFilterChip: View {
-    let label: String
-    let isSelected: Bool
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            Text(label)
-                .font(.caption)
-                .fontWeight(isSelected ? .semibold : .regular)
-                .foregroundColor(isSelected ? .black : .appSecondary)
-                .padding(.horizontal, 14).padding(.vertical, 6)
-                .background(isSelected ? Color.appGold : Color.appSurface2)
-                .cornerRadius(16)
-        }
-    }
-}
-
-struct SessionFilterChip: View {
-    let label: String
-    let isSelected: Bool
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            Text(label)
-                .font(.caption)
-                .fontWeight(isSelected ? .semibold : .regular)
-                .foregroundColor(isSelected ? .black : .appSecondary)
-                .padding(.horizontal, 12).padding(.vertical, 6)
-                .background(isSelected ? Color.appGold : Color.appSurface2)
-                .cornerRadius(16)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 16)
-                        .stroke(isSelected ? Color.appGold : Color.appBorder, lineWidth: 1)
-                )
-        }
     }
 }
 
