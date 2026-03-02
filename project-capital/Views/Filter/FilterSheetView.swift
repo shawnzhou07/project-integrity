@@ -22,10 +22,13 @@ struct FilterSheetView: View {
     @FetchRequest(sortDescriptors: [NSSortDescriptor(keyPath: \LiveCash.startTime, ascending: false)])
     private var liveSessions: FetchedResults<LiveCash>
 
-    private var showLiveSections: Bool {
+    @State private var openSection: String? = nil
+
+    private var liveEnabled: Bool {
         filterState.sessionTypes.isEmpty || filterState.sessionTypes.contains(.live)
     }
-    private var showOnlineSections: Bool {
+
+    private var onlineEnabled: Bool {
         filterState.sessionTypes.isEmpty || filterState.sessionTypes.contains(.online)
     }
 
@@ -53,38 +56,33 @@ struct FilterSheetView: View {
 
     var body: some View {
         NavigationStack {
-            List {
-                dateRangeSection
-                if showSessionsOnlyFilters {
-                    sessionTypeSection
+            ScrollView {
+                VStack(spacing: 8) {
+                    dateRangeAccordion
+                    sessionTypeAccordion
+                    locationsAccordion
+                    platformsAccordion
+                    gameTypeAccordion
+                    blindLevelAccordion
+                    if showSessionsOnlyFilters {
+                        resultAccordion
+                        verificationAccordion
+                    }
                 }
-                if !locations.isEmpty && showLiveSections {
-                    locationsSection
-                }
-                if !platforms.isEmpty && showOnlineSections {
-                    platformsSection
-                }
-                if !allGameTypes.isEmpty {
-                    gameTypeSection
-                }
-                if !allBlindLevels.isEmpty {
-                    blindLevelSection
-                }
-                if showSessionsOnlyFilters {
-                    resultSection
-                    verificationSection
-                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 12)
             }
-            .listStyle(.insetGrouped)
-            .scrollContentBackground(.hidden)
             .background(Color.appBackground)
             .navigationTitle("Filters")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
-                    Button("Clear All") { filterState.reset() }
-                        .foregroundColor(filterState.activeFilterCount > 0 ? .appGold : .appSecondary)
-                        .disabled(filterState.activeFilterCount == 0)
+                    Button("Clear All") {
+                        filterState.reset()
+                        openSection = nil
+                    }
+                    .foregroundColor(filterState.activeFilterCount > 0 ? .appGold : .appSecondary)
+                    .disabled(filterState.activeFilterCount == 0)
                 }
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button("Done") { dismiss() }
@@ -96,265 +94,433 @@ struct FilterSheetView: View {
         .presentationDetents([.medium, .large])
         .presentationDragIndicator(.visible)
         .preferredColorScheme(.dark)
+        .onAppear { openSection = nil }
     }
 
-    // MARK: - Section: Date Range
+    // MARK: - Accordion Header
 
-    private var dateRangeSection: some View {
-        Section {
-            ForEach(DateRangeFilter.allCases, id: \.self) { option in
-                Button {
-                    filterState.dateRange = option
-                } label: {
-                    HStack {
-                        Text(option.rawValue)
+    @ViewBuilder
+    func accordionHeader(id: String, title: String, activeCount: Int, disabled: Bool = false) -> some View {
+        Button {
+            guard !disabled else { return }
+            withAnimation(.easeInOut(duration: 0.2)) {
+                openSection = openSection == id ? nil : id
+            }
+        } label: {
+            HStack(spacing: 8) {
+                Text(title)
+                    .font(.subheadline)
+                    .fontWeight(.semibold)
+                    .foregroundColor(disabled ? .appSecondary : .appGold)
+                if activeCount > 0 && !disabled {
+                    Text("\(activeCount)")
+                        .font(.system(size: 10, weight: .bold))
+                        .foregroundColor(.black)
+                        .frame(minWidth: 16, minHeight: 16)
+                        .background(Color.appGold)
+                        .clipShape(Circle())
+                }
+                Spacer()
+                Image(systemName: "chevron.right")
+                    .font(.caption)
+                    .fontWeight(.semibold)
+                    .foregroundColor(disabled ? Color.appSecondary.opacity(0.4) : .appGold)
+                    .rotationEffect(.degrees(openSection == id ? 90 : 0))
+                    .animation(.easeInOut(duration: 0.2), value: openSection)
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 14)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    // MARK: - Date Range
+
+    var dateRangeAccordion: some View {
+        VStack(spacing: 0) {
+            accordionHeader(id: "date", title: "Date Range", activeCount: filterState.isDateSectionActive ? 1 : 0)
+            if openSection == "date" {
+                Divider().background(Color.appBorder)
+                VStack(spacing: 0) {
+                    ForEach(DateRangeFilter.allCases, id: \.self) { option in
+                        Button {
+                            filterState.dateRange = option
+                        } label: {
+                            HStack {
+                                Text(option.rawValue).foregroundColor(.appPrimary)
+                                Spacer()
+                                if filterState.dateRange == option {
+                                    Image(systemName: "checkmark").foregroundColor(.appGold)
+                                }
+                            }
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 12)
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        Divider().background(Color.appBorder).padding(.leading, 16)
+                    }
+                    if filterState.dateRange == .custom {
+                        DatePicker("Start Date", selection: $filterState.customStartDate, displayedComponents: .date)
                             .foregroundColor(.appPrimary)
-                        Spacer()
-                        if filterState.dateRange == option {
-                            Image(systemName: "checkmark").foregroundColor(.appGold)
-                        }
+                            .tint(.appGold)
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 8)
+                        Divider().background(Color.appBorder).padding(.leading, 16)
+                        DatePicker("End Date", selection: $filterState.customEndDate, displayedComponents: .date)
+                            .foregroundColor(.appPrimary)
+                            .tint(.appGold)
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 8)
+                        Divider().background(Color.appBorder).padding(.leading, 16)
                     }
                 }
-                .listRowBackground(Color.appSurface)
             }
-
-            if filterState.dateRange == .custom {
-                DatePicker("Start Date", selection: $filterState.customStartDate, displayedComponents: .date)
-                    .foregroundColor(.appPrimary)
-                    .tint(.appGold)
-                    .listRowBackground(Color.appSurface)
-                DatePicker("End Date", selection: $filterState.customEndDate, displayedComponents: .date)
-                    .foregroundColor(.appPrimary)
-                    .tint(.appGold)
-                    .listRowBackground(Color.appSurface)
-            }
-        } header: {
-            filterSectionHeader("Date Range", isActive: filterState.isDateSectionActive)
         }
+        .background(Color.appSurface)
+        .cornerRadius(10)
     }
 
-    // MARK: - Section: Session Type
+    // MARK: - Session Type
 
-    private var sessionTypeSection: some View {
-        Section {
-            ForEach(SessionTypeOption.allCases, id: \.self) { type in
-                Button {
-                    if filterState.sessionTypes.contains(type) {
-                        filterState.sessionTypes.remove(type)
-                    } else {
-                        filterState.sessionTypes.insert(type)
-                    }
-                } label: {
-                    HStack {
-                        Text(type.rawValue).foregroundColor(.appPrimary)
-                        Spacer()
-                        if filterState.sessionTypes.contains(type) {
-                            Image(systemName: "checkmark").foregroundColor(.appGold)
+    var sessionTypeAccordion: some View {
+        VStack(spacing: 0) {
+            accordionHeader(id: "type", title: "Session Type", activeCount: filterState.isTypeSectionActive ? 1 : 0)
+            if openSection == "type" {
+                Divider().background(Color.appBorder)
+                VStack(spacing: 0) {
+                    Button { toggleLive() } label: {
+                        HStack {
+                            Text("Live Sessions").foregroundColor(.appPrimary)
+                            Spacer()
+                            Toggle("", isOn: .constant(liveEnabled))
+                                .labelsHidden()
+                                .tint(.appGold)
+                                .allowsHitTesting(false)
                         }
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 12)
+                        .contentShape(Rectangle())
                     }
+                    .buttonStyle(.plain)
+                    Divider().background(Color.appBorder).padding(.leading, 16)
+                    Button { toggleOnline() } label: {
+                        HStack {
+                            Text("Online Sessions").foregroundColor(.appPrimary)
+                            Spacer()
+                            Toggle("", isOn: .constant(onlineEnabled))
+                                .labelsHidden()
+                                .tint(.appGold)
+                                .allowsHitTesting(false)
+                        }
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 12)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
                 }
-                .listRowBackground(Color.appSurface)
             }
-        } header: {
-            filterSectionHeader("Session Type", isActive: filterState.isTypeSectionActive)
         }
+        .background(Color.appSurface)
+        .cornerRadius(10)
     }
 
-    // MARK: - Section: Locations
+    // MARK: - Locations
 
-    private var locationsSection: some View {
-        Section {
-            selectAllRow(
-                allSelected: filterState.selectedLocationIDs.count == locations.count,
-                onSelectAll: { filterState.selectedLocationIDs = Set(locations.compactMap { $0.id }) },
-                onDeselectAll: { filterState.selectedLocationIDs = [] }
+    @ViewBuilder
+    var locationsAccordion: some View {
+        let disabled = !liveEnabled
+        VStack(spacing: 0) {
+            accordionHeader(
+                id: "locations",
+                title: "Locations",
+                activeCount: filterState.selectedLocationIDs.count,
+                disabled: disabled
             )
-            ForEach(locations) { loc in
-                Button {
-                    guard let id = loc.id else { return }
-                    if filterState.selectedLocationIDs.contains(id) {
-                        filterState.selectedLocationIDs.remove(id)
-                    } else {
-                        filterState.selectedLocationIDs.insert(id)
-                    }
-                } label: {
-                    HStack {
-                        Text(loc.displayName).foregroundColor(.appPrimary)
-                        Spacer()
-                        if let id = loc.id, filterState.selectedLocationIDs.contains(id) {
-                            Image(systemName: "checkmark").foregroundColor(.appGold)
+            if openSection == "locations" && !disabled {
+                Divider().background(Color.appBorder)
+                if locations.isEmpty {
+                    Text("No locations added yet.")
+                        .font(.caption)
+                        .foregroundColor(.appSecondary)
+                        .padding()
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.leading, 16)
+                } else {
+                    VStack(spacing: 0) {
+                        selectAllRow(
+                            allSelected: filterState.selectedLocationIDs.count == locations.count,
+                            onSelectAll: { filterState.selectedLocationIDs = Set(locations.compactMap { $0.id }) },
+                            onDeselectAll: { filterState.selectedLocationIDs = [] }
+                        )
+                        Divider().background(Color.appBorder).padding(.leading, 16)
+                        ForEach(locations) { loc in
+                            Button {
+                                guard let id = loc.id else { return }
+                                if filterState.selectedLocationIDs.contains(id) {
+                                    filterState.selectedLocationIDs.remove(id)
+                                } else {
+                                    filterState.selectedLocationIDs.insert(id)
+                                }
+                            } label: {
+                                HStack {
+                                    Text(loc.displayName).foregroundColor(.appPrimary)
+                                    Spacer()
+                                    if let id = loc.id, filterState.selectedLocationIDs.contains(id) {
+                                        Image(systemName: "checkmark").foregroundColor(.appGold)
+                                    }
+                                }
+                                .padding(.horizontal, 16)
+                                .padding(.vertical, 12)
+                                .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                            Divider().background(Color.appBorder).padding(.leading, 16)
                         }
                     }
                 }
-                .listRowBackground(Color.appSurface)
             }
-        } header: {
-            filterSectionHeader("Locations", isActive: filterState.isLocationSectionActive)
         }
+        .background(Color.appSurface)
+        .cornerRadius(10)
     }
 
-    // MARK: - Section: Platforms
+    // MARK: - Platforms
 
-    private var platformsSection: some View {
-        Section {
-            selectAllRow(
-                allSelected: filterState.selectedPlatformIDs.count == platforms.count,
-                onSelectAll: { filterState.selectedPlatformIDs = Set(platforms.compactMap { $0.id }) },
-                onDeselectAll: { filterState.selectedPlatformIDs = [] }
+    @ViewBuilder
+    var platformsAccordion: some View {
+        let disabled = !onlineEnabled
+        VStack(spacing: 0) {
+            accordionHeader(
+                id: "platforms",
+                title: "Platforms",
+                activeCount: filterState.selectedPlatformIDs.count,
+                disabled: disabled
             )
-            ForEach(platforms) { platform in
-                Button {
-                    guard let id = platform.id else { return }
-                    if filterState.selectedPlatformIDs.contains(id) {
-                        filterState.selectedPlatformIDs.remove(id)
-                    } else {
-                        filterState.selectedPlatformIDs.insert(id)
-                    }
-                } label: {
-                    HStack {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(platform.displayName).foregroundColor(.appPrimary)
-                            Text(platform.displayCurrency)
-                                .font(.caption).foregroundColor(.appSecondary)
-                        }
-                        Spacer()
-                        if let id = platform.id, filterState.selectedPlatformIDs.contains(id) {
-                            Image(systemName: "checkmark").foregroundColor(.appGold)
+            if openSection == "platforms" && !disabled {
+                Divider().background(Color.appBorder)
+                if platforms.isEmpty {
+                    Text("No platforms added yet.")
+                        .font(.caption)
+                        .foregroundColor(.appSecondary)
+                        .padding()
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.leading, 16)
+                } else {
+                    VStack(spacing: 0) {
+                        selectAllRow(
+                            allSelected: filterState.selectedPlatformIDs.count == platforms.count,
+                            onSelectAll: { filterState.selectedPlatformIDs = Set(platforms.compactMap { $0.id }) },
+                            onDeselectAll: { filterState.selectedPlatformIDs = [] }
+                        )
+                        Divider().background(Color.appBorder).padding(.leading, 16)
+                        ForEach(platforms) { platform in
+                            Button {
+                                guard let id = platform.id else { return }
+                                if filterState.selectedPlatformIDs.contains(id) {
+                                    filterState.selectedPlatformIDs.remove(id)
+                                } else {
+                                    filterState.selectedPlatformIDs.insert(id)
+                                }
+                            } label: {
+                                HStack {
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text(platform.displayName).foregroundColor(.appPrimary)
+                                        Text(platform.displayCurrency)
+                                            .font(.caption).foregroundColor(.appSecondary)
+                                    }
+                                    Spacer()
+                                    if let id = platform.id, filterState.selectedPlatformIDs.contains(id) {
+                                        Image(systemName: "checkmark").foregroundColor(.appGold)
+                                    }
+                                }
+                                .padding(.horizontal, 16)
+                                .padding(.vertical, 12)
+                                .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                            Divider().background(Color.appBorder).padding(.leading, 16)
                         }
                     }
                 }
-                .listRowBackground(Color.appSurface)
             }
-        } header: {
-            filterSectionHeader("Platforms", isActive: filterState.isPlatformSectionActive)
         }
+        .background(Color.appSurface)
+        .cornerRadius(10)
     }
 
-    // MARK: - Section: Game Type
+    // MARK: - Game Type
 
-    private var gameTypeSection: some View {
-        Section {
-            selectAllRow(
-                allSelected: filterState.selectedGameTypes.count == allGameTypes.count,
-                onSelectAll: { filterState.selectedGameTypes = Set(allGameTypes) },
-                onDeselectAll: { filterState.selectedGameTypes = [] }
-            )
-            ForEach(allGameTypes, id: \.self) { gt in
-                Button {
-                    if filterState.selectedGameTypes.contains(gt) {
-                        filterState.selectedGameTypes.remove(gt)
-                    } else {
-                        filterState.selectedGameTypes.insert(gt)
-                    }
-                } label: {
-                    HStack {
-                        Text(gt).foregroundColor(.appPrimary)
-                        Spacer()
-                        if filterState.selectedGameTypes.contains(gt) {
-                            Image(systemName: "checkmark").foregroundColor(.appGold)
+    var gameTypeAccordion: some View {
+        VStack(spacing: 0) {
+            accordionHeader(id: "gameType", title: "Game Type", activeCount: filterState.selectedGameTypes.count)
+            if openSection == "gameType" {
+                Divider().background(Color.appBorder)
+                if allGameTypes.isEmpty {
+                    Text("No game types recorded yet.")
+                        .font(.caption)
+                        .foregroundColor(.appSecondary)
+                        .padding()
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.leading, 16)
+                } else {
+                    VStack(spacing: 0) {
+                        selectAllRow(
+                            allSelected: filterState.selectedGameTypes.count == allGameTypes.count,
+                            onSelectAll: { filterState.selectedGameTypes = Set(allGameTypes) },
+                            onDeselectAll: { filterState.selectedGameTypes = [] }
+                        )
+                        Divider().background(Color.appBorder).padding(.leading, 16)
+                        ForEach(allGameTypes, id: \.self) { gt in
+                            Button {
+                                if filterState.selectedGameTypes.contains(gt) {
+                                    filterState.selectedGameTypes.remove(gt)
+                                } else {
+                                    filterState.selectedGameTypes.insert(gt)
+                                }
+                            } label: {
+                                HStack {
+                                    Text(gt).foregroundColor(.appPrimary)
+                                    Spacer()
+                                    if filterState.selectedGameTypes.contains(gt) {
+                                        Image(systemName: "checkmark").foregroundColor(.appGold)
+                                    }
+                                }
+                                .padding(.horizontal, 16)
+                                .padding(.vertical, 12)
+                                .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                            Divider().background(Color.appBorder).padding(.leading, 16)
                         }
                     }
                 }
-                .listRowBackground(Color.appSurface)
             }
-        } header: {
-            filterSectionHeader("Game Type", isActive: filterState.isGameTypeSectionActive)
         }
+        .background(Color.appSurface)
+        .cornerRadius(10)
     }
 
-    // MARK: - Section: Blind Levels
+    // MARK: - Blind Levels
 
-    private var blindLevelSection: some View {
-        Section {
-            selectAllRow(
-                allSelected: filterState.selectedBlindLevels.count == allBlindLevels.count,
-                onSelectAll: { filterState.selectedBlindLevels = Set(allBlindLevels) },
-                onDeselectAll: { filterState.selectedBlindLevels = [] }
-            )
-            ForEach(allBlindLevels, id: \.self) { level in
-                Button {
-                    if filterState.selectedBlindLevels.contains(level) {
-                        filterState.selectedBlindLevels.remove(level)
-                    } else {
-                        filterState.selectedBlindLevels.insert(level)
-                    }
-                } label: {
-                    HStack {
-                        Text(level).foregroundColor(.appPrimary)
-                        Spacer()
-                        if filterState.selectedBlindLevels.contains(level) {
-                            Image(systemName: "checkmark").foregroundColor(.appGold)
+    var blindLevelAccordion: some View {
+        VStack(spacing: 0) {
+            accordionHeader(id: "blinds", title: "Blind Levels", activeCount: filterState.selectedBlindLevels.count)
+            if openSection == "blinds" {
+                Divider().background(Color.appBorder)
+                if allBlindLevels.isEmpty {
+                    Text("No blind levels recorded yet.")
+                        .font(.caption)
+                        .foregroundColor(.appSecondary)
+                        .padding()
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.leading, 16)
+                } else {
+                    VStack(spacing: 0) {
+                        selectAllRow(
+                            allSelected: filterState.selectedBlindLevels.count == allBlindLevels.count,
+                            onSelectAll: { filterState.selectedBlindLevels = Set(allBlindLevels) },
+                            onDeselectAll: { filterState.selectedBlindLevels = [] }
+                        )
+                        Divider().background(Color.appBorder).padding(.leading, 16)
+                        ForEach(allBlindLevels, id: \.self) { level in
+                            Button {
+                                if filterState.selectedBlindLevels.contains(level) {
+                                    filterState.selectedBlindLevels.remove(level)
+                                } else {
+                                    filterState.selectedBlindLevels.insert(level)
+                                }
+                            } label: {
+                                HStack {
+                                    Text(level).foregroundColor(.appPrimary)
+                                    Spacer()
+                                    if filterState.selectedBlindLevels.contains(level) {
+                                        Image(systemName: "checkmark").foregroundColor(.appGold)
+                                    }
+                                }
+                                .padding(.horizontal, 16)
+                                .padding(.vertical, 12)
+                                .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                            Divider().background(Color.appBorder).padding(.leading, 16)
                         }
                     }
                 }
-                .listRowBackground(Color.appSurface)
             }
-        } header: {
-            filterSectionHeader("Blind Levels", isActive: filterState.isBlindLevelSectionActive)
         }
+        .background(Color.appSurface)
+        .cornerRadius(10)
     }
 
-    // MARK: - Section: Result
+    // MARK: - Result (sessions only)
 
-    private var resultSection: some View {
-        Section {
-            ForEach(ResultFilter.allCases, id: \.self) { option in
-                Button {
-                    filterState.resultFilter = option
-                } label: {
-                    HStack {
-                        Text(option.rawValue).foregroundColor(.appPrimary)
-                        Spacer()
-                        if filterState.resultFilter == option {
-                            Image(systemName: "checkmark").foregroundColor(.appGold)
+    var resultAccordion: some View {
+        VStack(spacing: 0) {
+            accordionHeader(id: "result", title: "Result", activeCount: filterState.isResultSectionActive ? 1 : 0)
+            if openSection == "result" {
+                Divider().background(Color.appBorder)
+                VStack(spacing: 0) {
+                    ForEach(ResultFilter.allCases, id: \.self) { option in
+                        Button {
+                            filterState.resultFilter = option
+                        } label: {
+                            HStack {
+                                Text(option.rawValue).foregroundColor(.appPrimary)
+                                Spacer()
+                                if filterState.resultFilter == option {
+                                    Image(systemName: "checkmark").foregroundColor(.appGold)
+                                }
+                            }
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 12)
+                            .contentShape(Rectangle())
                         }
+                        .buttonStyle(.plain)
+                        Divider().background(Color.appBorder).padding(.leading, 16)
                     }
                 }
-                .listRowBackground(Color.appSurface)
             }
-        } header: {
-            filterSectionHeader("Result", isActive: filterState.isResultSectionActive)
         }
+        .background(Color.appSurface)
+        .cornerRadius(10)
     }
 
-    // MARK: - Section: Verification
+    // MARK: - Verification Status (sessions only)
 
-    private var verificationSection: some View {
-        Section {
-            ForEach(VerificationFilter.allCases, id: \.self) { option in
-                Button {
-                    filterState.verificationFilter = option
-                } label: {
-                    HStack {
-                        Text(option.rawValue).foregroundColor(.appPrimary)
-                        Spacer()
-                        if filterState.verificationFilter == option {
-                            Image(systemName: "checkmark").foregroundColor(.appGold)
+    var verificationAccordion: some View {
+        VStack(spacing: 0) {
+            accordionHeader(id: "verification", title: "Verification Status", activeCount: filterState.isVerificationSectionActive ? 1 : 0)
+            if openSection == "verification" {
+                Divider().background(Color.appBorder)
+                VStack(spacing: 0) {
+                    ForEach(VerificationFilter.allCases, id: \.self) { option in
+                        Button {
+                            filterState.verificationFilter = option
+                        } label: {
+                            HStack {
+                                Text(option.rawValue).foregroundColor(.appPrimary)
+                                Spacer()
+                                if filterState.verificationFilter == option {
+                                    Image(systemName: "checkmark").foregroundColor(.appGold)
+                                }
+                            }
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 12)
+                            .contentShape(Rectangle())
                         }
+                        .buttonStyle(.plain)
+                        Divider().background(Color.appBorder).padding(.leading, 16)
                     }
                 }
-                .listRowBackground(Color.appSurface)
             }
-        } header: {
-            filterSectionHeader("Verification Status", isActive: filterState.isVerificationSectionActive)
         }
+        .background(Color.appSurface)
+        .cornerRadius(10)
     }
 
     // MARK: - Helpers
-
-    private func filterSectionHeader(_ title: String, isActive: Bool) -> some View {
-        HStack(spacing: 6) {
-            Text(title)
-                .font(.headline)
-                .foregroundColor(.appGold)
-                .textCase(nil)
-            if isActive {
-                Circle()
-                    .fill(Color.appGold)
-                    .frame(width: 6, height: 6)
-            }
-        }
-    }
 
     private func selectAllRow(allSelected: Bool, onSelectAll: @escaping () -> Void, onDeselectAll: @escaping () -> Void) -> some View {
         HStack {
@@ -366,7 +532,25 @@ struct FilterSheetView: View {
                 .font(.caption)
                 .foregroundColor(.appSecondary)
         }
-        .listRowBackground(Color.appSurface2)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+        .background(Color.appSurface2)
+    }
+
+    private func toggleLive() {
+        if liveEnabled {
+            filterState.sessionTypes = [.online]
+        } else {
+            filterState.sessionTypes = []
+        }
+    }
+
+    private func toggleOnline() {
+        if onlineEnabled {
+            filterState.sessionTypes = [.live]
+        } else {
+            filterState.sessionTypes = []
+        }
     }
 }
 

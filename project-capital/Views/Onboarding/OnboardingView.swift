@@ -27,19 +27,32 @@ struct OnboardingView: View {
     // MARK: - Step 0: Welcome
 
     var welcomeStep: some View {
-        VStack(spacing: 40) {
+        VStack(spacing: 0) {
             Spacer()
-            VStack(spacing: 16) {
-                Image(systemName: "suit.spade.fill")
-                    .font(.system(size: 64))
-                    .foregroundColor(.appGold)
-                Text("Project Capital")
-                    .font(.largeTitle)
-                    .fontWeight(.bold)
-                    .foregroundColor(.appPrimary)
+            VStack(spacing: 0) {
+                Image("veritas-logo")
+                    .renderingMode(.template)
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: 120, height: 120)
+                    .foregroundColor(Color(hex: "C9B47A"))
+                Spacer().frame(height: 24)
+                Text("Veritas")
+                    .font(.system(size: 42, weight: .bold))
+                    .foregroundColor(.white)
+                Spacer().frame(height: 8)
+                Text("Poker Bankroll Tracker")
+                    .font(.system(size: 18, weight: .medium))
+                    .foregroundColor(Color(hex: "C9B47A"))
+                Spacer().frame(height: 12)
+                Rectangle()
+                    .frame(width: 60, height: 1)
+                    .foregroundColor(Color(hex: "C9B47A"))
+                Spacer().frame(height: 12)
                 Text("Track your real poker profits.")
-                    .font(.title3)
-                    .foregroundColor(.appSecondary)
+                    .font(.system(size: 15, weight: .regular))
+                    .foregroundColor(Color(hex: "8A8A8A"))
+                    .multilineTextAlignment(.center)
             }
             Spacer()
             Button {

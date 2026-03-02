@@ -31,42 +31,53 @@ extension Platform {
         return transactions.sorted { $0.date < $1.date }.last?.rateToBase ?? 1.0
     }
 
+    // amountSent is always in base currency (CAD), amountReceived is in platform currency.
     var totalDeposited: Double {
-        let rate = latestFXConversionRate
-        return depositsArray.reduce(0) { sum, d in
-            d.isForeignExchange ? sum + d.amountSent : sum + d.amountSent * rate
-        }
+        depositsArray.reduce(0) { $0 + $1.amountSent }
     }
 
+    // amountReceived on withdrawals is always in base currency (CAD).
     var totalWithdrawn: Double {
-        let rate = latestFXConversionRate
-        return withdrawalsArray.reduce(0) { sum, w in
-            w.isForeignExchange ? sum + w.amountReceived : sum + w.amountReceived * rate
-        }
+        withdrawalsArray.reduce(0) { $0 + $1.amountReceived }
     }
 
     var totalAdjustments: Double {
         adjustmentsArray.reduce(0) { $0 + $1.amountBase }
     }
 
-    // Net result: withdrawals (base) + current balance (base) − deposits (base) + adjustments (base).
+    // Net result in base currency using weighted average deposit rate.
+    // Formula: totalWithdrawalsReceivedBase + (currentBalance × weightedAvgDepositRate) − totalDepositsSentBase
+    // weightedAvgDepositRate = totalDepositsSentBase / totalDepositsReceivedPlatformCurrency
+    // For same-currency platforms, weightedAvgDepositRate = 1.0 always.
     var netResult: Double {
         guard !depositsArray.isEmpty || !withdrawalsArray.isEmpty else { return 0 }
-        let rate = latestFXConversionRate
-        let currentValueBase = currentBalance * rate
-        return totalWithdrawn + currentValueBase - totalDeposited + totalAdjustments
+        let baseCurrencyCode = UserDefaults.standard.string(forKey: "baseCurrency") ?? "CAD"
+        let platformCurrencyCode = currency ?? "USD"
+        let isSameCurrency = platformCurrencyCode == baseCurrencyCode
+
+        let totalWithdrawalsReceivedBase = withdrawalsArray.reduce(0) { $0 + $1.amountReceived }
+        let totalDepositsSentBase = depositsArray.reduce(0) { $0 + $1.amountSent }
+        let totalDepositsReceivedPlatformCurrency = depositsArray.reduce(0) { $0 + $1.amountReceived }
+
+        let weightedAvgDepositRate: Double
+        if isSameCurrency {
+            weightedAvgDepositRate = 1.0
+        } else if totalDepositsReceivedPlatformCurrency == 0 {
+            weightedAvgDepositRate = 1.0
+        } else {
+            weightedAvgDepositRate = totalDepositsSentBase / totalDepositsReceivedPlatformCurrency
+        }
+
+        return totalWithdrawalsReceivedBase + (currentBalance * weightedAvgDepositRate) - totalDepositsSentBase
     }
 
-    // Net result in platform currency — fully independent formula using platform-native amounts.
-    // deposit.amountReceived and withdrawal.amountRequested are always in platform currency.
+    // Net result in platform currency.
+    // Formula: totalWithdrawalsRequestedPlatformCurrency + currentBalance − totalDepositsReceivedPlatformCurrency
     var netResultInPlatformCurrency: Double {
         guard !depositsArray.isEmpty || !withdrawalsArray.isEmpty else { return 0 }
-        let totalDepPlatform = depositsArray.reduce(0) { $0 + $1.amountReceived }
-        let totalWdPlatform = withdrawalsArray.reduce(0) { $0 + $1.amountRequested }
-        // Convert adjustments (stored in base) back to platform currency using latest rate
-        let rate = latestFXConversionRate
-        let adjPlatform = rate > 0 ? totalAdjustments / rate : 0
-        return totalWdPlatform + currentBalance - totalDepPlatform + adjPlatform
+        let totalWithdrawalsRequestedPlatform = withdrawalsArray.reduce(0) { $0 + $1.amountRequested }
+        let totalDepositsReceivedPlatform = depositsArray.reduce(0) { $0 + $1.amountReceived }
+        return totalWithdrawalsRequestedPlatform + currentBalance - totalDepositsReceivedPlatform
     }
 
     var displayName: String { name ?? "Unknown Platform" }

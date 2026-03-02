@@ -5,6 +5,14 @@ import UniformTypeIdentifiers
 
 // MARK: - Export/Import Data Structures
 
+struct LocationExport: Codable {
+    let id: UUID
+    let name: String
+    let latitude: Double
+    let longitude: Double
+    let createdAt: Date?
+}
+
 struct ExportData: Codable {
     let exportVersion: Int
     let exportDate: Date
@@ -15,6 +23,7 @@ struct ExportData: Codable {
     let deposits: [DepositExport]
     let withdrawals: [WithdrawalExport]
     let adjustments: [AdjustmentExport]
+    let locations: [LocationExport]?
 }
 
 struct PlatformExport: Codable {
@@ -174,6 +183,7 @@ struct SettingsView: View {
     // Import
     @State private var showImportPicker = false
     @State private var showImportConfirm = false
+    @State private var showImportBlocked = false
     @State private var pendingImportURL: URL? = nil
     @State private var showImportSuccess = false
     @State private var importSummary = ""
@@ -207,11 +217,16 @@ struct SettingsView: View {
         } message: {
             Text(exportError ?? "Unknown error")
         }
+        .alert("Cannot Import", isPresented: $showImportBlocked) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text("Your app must be completely empty before importing. Please use Reset All Data in Settings to clear everything first, then try importing again.")
+        }
         .alert("Import Data?", isPresented: $showImportConfirm) {
             Button("Import") { performImport() }
             Button("Cancel", role: .cancel) { pendingImportURL = nil }
         } message: {
-            Text("Importing will add all records from the file to your existing data. Duplicate records will be skipped based on their ID. Continue?")
+            Text("This will import all records from the file into your app. The app must be empty for import to proceed. Continue?")
         }
         .alert("Import Complete", isPresented: $showImportSuccess) {
             Button("OK", role: .cancel) {}
@@ -230,9 +245,13 @@ struct SettingsView: View {
         }
         .sheet(isPresented: $showImportPicker) {
             JSONDocumentPicker { url in
-                pendingImportURL = url
                 showImportPicker = false
-                showImportConfirm = true
+                if hasExistingData() {
+                    showImportBlocked = true
+                } else {
+                    pendingImportURL = url
+                    showImportConfirm = true
+                }
             }
         }
     }
@@ -406,31 +425,29 @@ struct SettingsView: View {
 
     var aboutSection: some View {
         Section {
-            HStack {
-                Text("App Name")
-                    .foregroundColor(.appPrimary)
-                Spacer()
-                Text("Project Capital")
+            VStack(spacing: 6) {
+                Image("veritas-logo")
+                    .renderingMode(.template)
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: 40, height: 40)
+                    .foregroundColor(Color(hex: "C9B47A"))
+                Text("Veritas")
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundColor(.white)
+                Text("Poker Bankroll Tracker")
+                    .font(.caption)
                     .foregroundColor(.appSecondary)
-            }
-            .listRowBackground(Color.appSurface)
-
-            HStack {
-                Text("Version")
-                    .foregroundColor(.appPrimary)
-                Spacer()
-                Text(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0")
+                Text("Version \(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0")")
+                    .font(.caption)
                     .foregroundColor(.appSecondary)
+                Text("Precision Truth in Every Session")
+                    .font(.system(size: 13, weight: .regular))
+                    .italic()
+                    .foregroundColor(Color(hex: "C9B47A"))
             }
-            .listRowBackground(Color.appSurface)
-
-            HStack {
-                Text("Build")
-                    .foregroundColor(.appPrimary)
-                Spacer()
-                Text(Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "1")
-                    .foregroundColor(.appSecondary)
-            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 8)
             .listRowBackground(Color.appSurface)
         } header: {
             Text("About").foregroundColor(.appGold).textCase(nil)
@@ -447,6 +464,7 @@ struct SettingsView: View {
         let deposits = countEntity("Deposit")
         let withdrawals = countEntity("Withdrawal")
         let adjustments = countEntity("Adjustment")
+        let locations = countEntity("Location")
 
         var parts: [String] = []
         if sessions > 0 { parts.append("\(sessions) session\(sessions == 1 ? "" : "s")") }
@@ -454,9 +472,20 @@ struct SettingsView: View {
         if deposits > 0 { parts.append("\(deposits) deposit\(deposits == 1 ? "" : "s")") }
         if withdrawals > 0 { parts.append("\(withdrawals) withdrawal\(withdrawals == 1 ? "" : "s")") }
         if adjustments > 0 { parts.append("\(adjustments) adjustment\(adjustments == 1 ? "" : "s")") }
+        if locations > 0 { parts.append("\(locations) location\(locations == 1 ? "" : "s")") }
 
         let countText = parts.isEmpty ? "No data found." : "This will permanently delete \(parts.joined(separator: ", "))."
         return "\(countText) You will be returned to onboarding. This cannot be undone."
+    }
+
+    func hasExistingData() -> Bool {
+        let entities = ["Platform", "LiveCash", "OnlineCash", "Deposit", "Withdrawal", "Adjustment", "Location"]
+        for entity in entities {
+            let req = NSFetchRequest<NSFetchRequestResult>(entityName: entity)
+            let count = (try? viewContext.count(for: req)) ?? 0
+            if count > 0 { return true }
+        }
+        return false
     }
 
     // MARK: - Export
@@ -473,6 +502,7 @@ struct SettingsView: View {
             let depositsData = try fetchExportDeposits()
             let withdrawalsData = try fetchExportWithdrawals()
             let adjustmentsData = try fetchExportAdjustments()
+            let locationsData = try fetchExportLocations()
 
             let export = ExportData(
                 exportVersion: 1,
@@ -483,14 +513,15 @@ struct SettingsView: View {
                 onlineSessions: onlineData,
                 deposits: depositsData,
                 withdrawals: withdrawalsData,
-                adjustments: adjustmentsData
+                adjustments: adjustmentsData,
+                locations: locationsData
             )
 
             let jsonData = try encoder.encode(export)
 
             let df = DateFormatter()
             df.dateFormat = "yyyy-MM-dd"
-            let fileName = "ProjectCapital_Export_\(df.string(from: Date())).json"
+            let fileName = "Veritas_Export_\(df.string(from: Date())).json"
             let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent(fileName)
             try jsonData.write(to: tempURL)
 
@@ -550,10 +581,23 @@ struct SettingsView: View {
         }
     }
 
+    private func fetchExportLocations() throws -> [LocationExport] {
+        let req = NSFetchRequest<Location>(entityName: "Location")
+        let results = try viewContext.fetch(req)
+        return results.map {
+            LocationExport(id: $0.id ?? UUID(), name: $0.name ?? "", latitude: $0.latitude, longitude: $0.longitude, createdAt: $0.createdAt)
+        }
+    }
+
     // MARK: - Import
 
     func performImport() {
         guard let url = pendingImportURL else { return }
+        pendingImportURL = nil
+        guard !hasExistingData() else {
+            showImportBlocked = true
+            return
+        }
         do {
             let data = try Data(contentsOf: url)
             let decoder = JSONDecoder()
@@ -564,12 +608,11 @@ struct SettingsView: View {
             importError = "Failed to read file: \(error.localizedDescription)"
             showImportError = true
         }
-        pendingImportURL = nil
     }
 
     private func importRecords(from data: ExportData) {
         var addedPlatforms = 0, addedLive = 0, addedOnline = 0
-        var addedDeposits = 0, addedWithdrawals = 0, addedAdjustments = 0
+        var addedDeposits = 0, addedWithdrawals = 0, addedAdjustments = 0, addedLocations = 0
 
         // Fetch existing IDs
         func existingIDs(entity: String) -> Set<UUID> {
@@ -584,6 +627,7 @@ struct SettingsView: View {
         let existingDepositIDs = existingIDs(entity: "Deposit") as Set<UUID>
         let existingWithdrawalIDs = existingIDs(entity: "Withdrawal") as Set<UUID>
         let existingAdjustmentIDs = existingIDs(entity: "Adjustment") as Set<UUID>
+        let existingLocationIDs = existingIDs(entity: "Location") as Set<UUID>
 
         // Platform name → object map (for linking)
         var platformByName: [String: Platform] = [:]
@@ -719,6 +763,20 @@ struct SettingsView: View {
             addedAdjustments += 1
         }
 
+        // Import locations
+        if let importedLocations = data.locations {
+            for l in importedLocations {
+                if existingLocationIDs.contains(l.id) { continue }
+                let location = Location(context: viewContext)
+                location.id = l.id
+                location.name = l.name
+                location.latitude = l.latitude
+                location.longitude = l.longitude
+                location.createdAt = l.createdAt
+                addedLocations += 1
+            }
+        }
+
         do {
             try viewContext.save()
             let total = addedLive + addedOnline
@@ -728,6 +786,7 @@ struct SettingsView: View {
             if addedDeposits > 0 { parts.append("\(addedDeposits) deposit\(addedDeposits == 1 ? "" : "s")") }
             if addedWithdrawals > 0 { parts.append("\(addedWithdrawals) withdrawal\(addedWithdrawals == 1 ? "" : "s")") }
             if addedAdjustments > 0 { parts.append("\(addedAdjustments) adjustment\(addedAdjustments == 1 ? "" : "s")") }
+            if addedLocations > 0 { parts.append("\(addedLocations) location\(addedLocations == 1 ? "" : "s")") }
             importSummary = parts.isEmpty ? "No new records were added (all duplicates skipped)." : "\(parts.joined(separator: ", ")) were added."
             showImportSuccess = true
         } catch {
@@ -739,7 +798,7 @@ struct SettingsView: View {
     // MARK: - Reset
 
     func performReset() {
-        let entityNames = ["OnlineCash", "LiveCash", "Platform", "Deposit", "Withdrawal", "Adjustment"]
+        let entityNames = ["OnlineCash", "LiveCash", "Platform", "Deposit", "Withdrawal", "Adjustment", "Location"]
         for name in entityNames {
             let fetchRequest = NSFetchRequest<NSFetchRequestResult>(entityName: name)
             let deleteRequest = NSBatchDeleteRequest(fetchRequest: fetchRequest)

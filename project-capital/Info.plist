@@ -2,8 +2,12 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<key>CFBundleDisplayName</key>
+	<string>Veritas</string>
+	<key>CFBundleName</key>
+	<string>Veritas</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
-	<string>Project Capital uses your location to auto-detect nearby poker venues and suggest them when starting a live session.</string>
+	<string>Veritas uses your location to auto-detect nearby poker venues and suggest them when starting a live session.</string>
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>remote-notification</string>

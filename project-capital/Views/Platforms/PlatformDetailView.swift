@@ -453,13 +453,15 @@ struct WithdrawalRowView: View {
             }
             Spacer()
             VStack(alignment: .trailing, spacing: 2) {
-                Text("-\(AppFormatter.currency(withdrawal.amountRequested, code: platformCurrency))")
+                // Primary: amount received back in base currency (money back to user) — green
+                Text("+\(AppFormatter.currency(withdrawal.amountReceived, code: baseCurrency))")
                     .font(.subheadline)
                     .fontWeight(.medium)
-                    .foregroundColor(.appLoss)
-                Text("+\(AppFormatter.currency(withdrawal.amountReceived, code: baseCurrency))")
-                    .font(.caption)
                     .foregroundColor(.appProfit)
+                // Secondary: amount that left the platform — red
+                Text("-\(AppFormatter.currency(withdrawal.amountRequested, code: platformCurrency))")
+                    .font(.caption)
+                    .foregroundColor(.appLoss)
             }
         }
         .padding()

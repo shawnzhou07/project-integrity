@@ -87,15 +87,6 @@ struct LiveSessionDetailView: View {
     private var mainZStack: some View {
         ZStack {
             Color.appBackground.ignoresSafeArea()
-            // Only show the gold border for verified sessions that are fully stopped.
-            // Active sessions (endTime == nil) must never show the border.
-            if isVerified && session.endTime != nil {
-                RoundedRectangle(cornerRadius: 0)
-                    .stroke(Color.appGold.opacity(0.35), lineWidth: 2.0)
-                    .ignoresSafeArea()
-                    .allowsHitTesting(false)
-                    .zIndex(999)
-            }
 
             VStack(spacing: 0) {
                 Form {
