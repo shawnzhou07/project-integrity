@@ -2,7 +2,7 @@ import SwiftUI
 import CoreData
 
 @main
-struct ProjectCapitalApp: App {
+struct ProjectIntegrityApp: App {
     let persistenceController = PersistenceController.shared
 
     var body: some Scene {
@@ -16,12 +16,20 @@ struct ProjectCapitalApp: App {
 
 struct RootView: View {
     @AppStorage("hasCompletedOnboarding") private var hasCompletedOnboarding = false
+    @AppStorage("hasSeenTutorial") private var hasSeenTutorial = false
 
     var body: some View {
-        if hasCompletedOnboarding {
-            MainTabView()
-        } else {
-            OnboardingView()
+        ZStack {
+            if !hasSeenTutorial {
+                TutorialView()
+                    .transition(.opacity)
+            } else if !hasCompletedOnboarding {
+                OnboardingView()
+                    .transition(.opacity)
+            } else {
+                MainTabView()
+                    .transition(.opacity)
+            }
         }
     }
 }

@@ -205,7 +205,9 @@ struct OnboardingView: View {
         } catch {
             print("Failed to save platforms: \(error)")
         }
-        hasCompletedOnboarding = true
+        withAnimation(.easeInOut(duration: 0.35)) {
+            hasCompletedOnboarding = true
+        }
     }
 }
 

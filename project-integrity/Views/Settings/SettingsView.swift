@@ -165,6 +165,7 @@ struct JSONDocumentPicker: UIViewControllerRepresentable {
 struct SettingsView: View {
     @Environment(\.managedObjectContext) private var viewContext
     @AppStorage("hasCompletedOnboarding") private var hasCompletedOnboarding = false
+    @AppStorage("hasSeenTutorial") private var hasSeenTutorial = false
     @AppStorage("baseCurrency") private var baseCurrency = "CAD"
     @AppStorage("handsPerHourOnline") private var handsPerHourOnline = 85
     @AppStorage("handsPerHourLive") private var handsPerHourLive = 25
@@ -173,6 +174,7 @@ struct SettingsView: View {
     @AppStorage("defaultRateEURToBase") private var defaultRateEURToBase = 1.47
     @AppStorage("defaultRateUSDToEUR") private var defaultRateUSDToEUR = 0.92
     @State private var showResetConfirmation = false
+    @State private var showTutorial = false
 
     // Export
     @State private var showShareSheet = false
@@ -198,6 +200,7 @@ struct SettingsView: View {
                 handsSection
                 exchangeRateInputSection
                 defaultRatesSection
+                helpSection
                 dataSection
                 aboutSection
             }
@@ -253,6 +256,9 @@ struct SettingsView: View {
                     showImportConfirm = true
                 }
             }
+        }
+        .fullScreenCover(isPresented: $showTutorial) {
+            TutorialView(isFromSettings: true)
         }
     }
 
@@ -377,6 +383,26 @@ struct SettingsView: View {
                 .listRowBackground(Color.appSurface)
         } header: {
             Text("Default Exchange Rates").foregroundColor(.appGold).textCase(nil)
+        }
+    }
+
+    var helpSection: some View {
+        Section {
+            Button {
+                showTutorial = true
+            } label: {
+                HStack {
+                    Text("View Tutorial")
+                        .foregroundColor(.appPrimary)
+                    Spacer()
+                    Image(systemName: "chevron.right")
+                        .font(.caption)
+                        .foregroundColor(.appSecondary)
+                }
+            }
+            .listRowBackground(Color.appSurface)
+        } header: {
+            Text("Help").foregroundColor(.appGold).textCase(nil)
         }
     }
 
@@ -814,6 +840,7 @@ struct SettingsView: View {
             defaults.removeObject(forKey: key)
         }
 
+        hasSeenTutorial = false
         hasCompletedOnboarding = false
     }
 }
