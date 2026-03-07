@@ -7,6 +7,7 @@ struct MoreView: View {
 
     @State private var showDirectAdjustment = false
     @State private var directAdjustmentPlatform: Platform? = nil
+    @StateObject private var chartsFilterState = FilterState()
 
     var body: some View {
         ZStack {
@@ -15,24 +16,48 @@ struct MoreView: View {
                 NavigationLink {
                     LocationsListView()
                 } label: {
-                    Label("Locations", systemImage: "mappin.and.ellipse")
-                        .foregroundColor(.appPrimary)
+                    HStack {
+                        Image(systemName: "mappin.and.ellipse")
+                            .foregroundColor(.appGold)
+                        Text("Locations")
+                            .foregroundColor(.white)
+                    }
+                }
+                .listRowBackground(Color.appSurface)
+
+                NavigationLink {
+                    ChartsView(filterState: chartsFilterState)
+                } label: {
+                    HStack {
+                        Image(systemName: "chart.line.uptrend.xyaxis")
+                            .foregroundColor(.appGold)
+                        Text("Charts")
+                            .foregroundColor(.white)
+                    }
                 }
                 .listRowBackground(Color.appSurface)
 
                 NavigationLink {
                     AdjustmentsListView()
                 } label: {
-                    Label("Adjustments", systemImage: "plusminus.circle.fill")
-                        .foregroundColor(.appPrimary)
+                    HStack {
+                        Image(systemName: "plusminus.circle.fill")
+                            .foregroundColor(.appGold)
+                        Text("Adjustments")
+                            .foregroundColor(.white)
+                    }
                 }
                 .listRowBackground(Color.appSurface)
 
                 NavigationLink {
                     SettingsView()
                 } label: {
-                    Label("Settings", systemImage: "gearshape.fill")
-                        .foregroundColor(.appPrimary)
+                    HStack {
+                        Image(systemName: "gearshape.fill")
+                            .foregroundColor(.appGold)
+                        Text("Settings")
+                            .foregroundColor(.white)
+                    }
                 }
                 .listRowBackground(Color.appSurface)
             }

@@ -58,12 +58,25 @@ struct LiveSessionDetailView: View {
 
     // Net result excludes tips
     var netPL: Double { cashOutDouble - buyInDouble }
-    // Net in base: each leg converted at its own rate
+    // Net in base: each leg converted at its own rate (including tips for header)
     var netPLBase: Double { (cashOutDouble * exchangeRateCashOut) - (buyInDouble * exchangeRateBuyIn) }
+    var tipsDouble: Double { Double(tips) ?? 0 }
+    /// Net for header: cashOut - buyIn - tips in base. Zero if cashOut not yet entered.
+    var headerNetBase: Double {
+        guard cashOutDouble > 0 || buyInDouble > 0 else { return 0 }
+        let outBase = cashOutDouble * (exchangeRateCashOut > 0 ? exchangeRateCashOut : 1.0)
+        let inBase = buyInDouble * (exchangeRateBuyIn > 0 ? exchangeRateBuyIn : 1.0)
+        let tipsRate = exchangeRateCashOut > 0 ? exchangeRateCashOut : (exchangeRateBuyIn > 0 ? exchangeRateBuyIn : 1.0)
+        return outBase - inBase - (tipsDouble * tipsRate)
+    }
     var buyInBase: Double { buyInDouble * exchangeRateBuyIn }
     var cashOutBase: Double { cashOutDouble * exchangeRateCashOut }
 
     var estimatedHands: Int { Int(duration * Double(UserSettings.shared.handsPerHourLive)) }
+    var effectiveHands: Int {
+        if let override = Int(handsOverride), override > 0 { return override }
+        return isSessionActive ? estimatedHands : Int(session.effectiveHands)
+    }
 
     var isVerified: Bool { session.isVerified }
 
@@ -166,22 +179,24 @@ struct LiveSessionDetailView: View {
             .onChange(of: ante) { _, _ in autoSave() }
             .onChange(of: breakTimeStr) { _, _ in autoSave() }
             .onChange(of: tableSize) { _, _ in autoSave() }
-            .onChange(of: startTime) { oldVal, newVal in
-                if oldVal.timeIntervalSince(newVal) > 20 * 3600 {
-                    startTime = Calendar.current.date(byAdding: .day, value: 1, to: newVal) ?? newVal
-                    return
+            .onChange(of: startTime) { _, _ in
+                if endTime <= startTime {
+                    showTimeAlert = true
+                    startTime = prevStartTime
+                } else {
+                    prevStartTime = startTime
+                    autoSave()
                 }
-                if endTime <= startTime { showTimeAlert = true; startTime = prevStartTime }
-                else { prevStartTime = startTime; autoSave() }
             }
-            .onChange(of: endTime) { oldVal, newVal in
+            .onChange(of: endTime) { _, _ in
                 guard !isSessionActive else { return }
-                if oldVal.timeIntervalSince(newVal) > 20 * 3600 {
-                    endTime = Calendar.current.date(byAdding: .day, value: 1, to: newVal) ?? newVal
-                    return
+                if endTime <= startTime {
+                    showTimeAlert = true
+                    endTime = prevEndTime
+                } else {
+                    prevEndTime = endTime
+                    autoSave()
                 }
-                if endTime <= startTime { showTimeAlert = true; endTime = prevEndTime }
-                else { prevEndTime = endTime; autoSave() }
             }
             .onChange(of: buyIn) { _, _ in autoSave() }
             .onChange(of: cashOut) { _, _ in autoSave() }
@@ -195,7 +210,7 @@ struct LiveSessionDetailView: View {
             .alert("Invalid Time Range", isPresented: $showTimeAlert) {
                 Button("OK", role: .cancel) {}
             } message: {
-                Text("End time must be after start time.")
+                Text("Start time must be before end time.")
             }
             .alert("Delete Session?", isPresented: $showDeleteAlert) {
                 Button("Delete", role: .destructive) {
@@ -208,11 +223,11 @@ struct LiveSessionDetailView: View {
                 Text("This cannot be undone.")
             }
             .alert("Verify Session?", isPresented: $showVerifyAlert) {
+                Button("Cancel", role: .cancel) {}
                 Button("Verify") { verifySession() }
                     .foregroundStyle(Color.appGold)
-                Button("Cancel", role: .cancel) {}
             } message: {
-                Text("Verify this session? Buy in, cash out, and currency will be permanently locked and cannot be changed.")
+                Text("The following fields will be permanently locked and can never be edited:\n\n• Buy-In\n• Cash-Out\n• Start Time & Date\n• End Time & Date\n\nExchange rates, location, game type, blinds, notes, and hands will remain editable.\n\nThis cannot be undone.")
             }
             .alert("Invalid Session Duration", isPresented: $showZeroDurationAlert) {
                 Button("OK", role: .cancel) {}
@@ -270,34 +285,67 @@ struct LiveSessionDetailView: View {
         }
     }
 
-    // MARK: - Header
+    // MARK: - Header (unified with online: shown from session start)
 
     var headerSection: some View {
-        Section {
-            VStack(spacing: 8) {
-                HStack(spacing: 8) {
-                    if isVerified {
-                        Image(systemName: "lock.fill")
-                            .font(.system(size: 16, weight: .semibold))
-                            .foregroundColor(.appGold)
-                            .shadow(color: Color.appGold.opacity(0.6), radius: 6, x: 0, y: 0)
-                    }
-                    Text(AppFormatter.currencySigned(session.netProfitLossBase))
-                        .font(.system(size: 36, weight: .bold))
-                        .foregroundColor(session.netProfitLossBase.profitColor)
-                        .shadow(color: session.netProfitLossBase.profitColor.opacity(isVerified ? 0.5 : 0), radius: 8, x: 0, y: 0)
+        let hasCashOut = cashOutDouble > 0 || (session.cashOut > 0)
+        let showZero = isSessionActive && !hasCashOut
+        let netVal = showZero ? 0 : headerNetBase
+        let glowColor = headerNetColor(netVal: netVal)
+        return Section {
+            VStack(alignment: .leading, spacing: 16) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Net Result")
+                        .font(.system(size: 13))
+                        .foregroundColor(Color(hex: "#8A8A8A"))
+                    Text(showZero ? AppFormatter.currency(0, code: baseCurrency) : AppFormatter.currencySigned(netVal, code: baseCurrency))
+                        .font(.system(size: 32, weight: .bold))
+                        .foregroundColor(glowColor)
+                        .shadow(color: glowColor.opacity(0.6), radius: 8, x: 0, y: 0)
+                        .shadow(color: glowColor.opacity(0.3), radius: 16, x: 0, y: 0)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 8)
+                        .background(
+                            RoundedRectangle(cornerRadius: 14)
+                                .fill(isVerified ? Color(hex: "#C9B47A").opacity(0.12) : Color.clear)
+                                .blur(radius: isVerified ? 14 : 0)
+                        )
                 }
-                HStack(spacing: 16) {
-                    Label(AppFormatter.duration(session.computedDuration), systemImage: "clock")
-                    Label(AppFormatter.handsCount(session.effectiveHands) + " hands", systemImage: "suit.spade")
+                .frame(maxWidth: .infinity, alignment: .leading)
+                HStack(spacing: 0) {
+                    headerStatColumn(title: "Duration", value: isSessionActive ? activeDurationText : AppFormatter.duration(session.computedDuration))
+                    headerStatColumn(title: "Hands", value: effectiveHands == 0 ? "—" : AppFormatter.handsCount(effectiveHands))
                 }
-                .font(.subheadline)
-                .foregroundColor(.appSecondary)
             }
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 8)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(20)
         }
-        .listRowBackground(Color.appSurface)
+        .listRowInsets(EdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 16))
+        .listRowBackground(
+            RoundedRectangle(cornerRadius: 16)
+                .fill(Color(hex: "#0D0D0D"))
+        )
+    }
+
+    private func headerNetColor(netVal: Double) -> Color {
+        if isVerified { return Color(hex: "#C9B47A") }
+        if netVal > 0 { return Color(hex: "#4CAF50") }
+        if netVal < 0 { return Color(hex: "#F44336") }
+        return Color(hex: "#8A8A8A")
+    }
+
+    private func headerStatColumn(title: String, value: String) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(title)
+                .font(.caption)
+                .foregroundColor(Color(hex: "#8A8A8A"))
+            Text(value)
+                .font(.subheadline)
+                .fontWeight(.medium)
+                .foregroundColor(.white)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     // MARK: - Location
@@ -368,17 +416,53 @@ struct LiveSessionDetailView: View {
         }
     }
 
-    // MARK: - Timing (always editable)
+    // MARK: - Timing
+
+    private func lockedDateTimeRow(label: String, date: Date) -> some View {
+        Button { triggerLockHaptic() } label: {
+            HStack {
+                Text(label)
+                    .foregroundColor(Color(hex: "#8A8A8A"))
+                Spacer()
+                HStack(spacing: 6) {
+                    Image(systemName: "lock.fill")
+                        .font(.caption)
+                        .foregroundColor(Color(hex: "#C9B47A"))
+                        .shadow(color: Color(hex: "#C9B47A"), radius: 6, x: 0, y: 0)
+                    Text("\(AppFormatter.longDate(date)) \(AppFormatter.timeOnly(date))")
+                        .foregroundColor(.white)
+                        .shadow(color: Color(hex: "#C9B47A"), radius: 6, x: 0, y: 0)
+                }
+                .padding(.horizontal, 10)
+                .padding(.vertical, 6)
+                .background(
+                    RoundedRectangle(cornerRadius: 14)
+                        .fill(Color(hex: "#C9B47A").opacity(0.12))
+                        .blur(radius: 14)
+                )
+            }
+        }
+        .buttonStyle(.plain)
+        .listRowBackground(Color.appSurface)
+    }
 
     var timingSection: some View {
         Section {
-            DatePicker("Start", selection: $startTime, displayedComponents: [.date, .hourAndMinute])
-                .foregroundColor(.appPrimary).tint(.appGold)
-                .listRowBackground(Color.appSurface)
-            if !isSessionActive {
-                DatePicker("End", selection: $endTime, displayedComponents: [.date, .hourAndMinute])
+            if isVerified {
+                lockedDateTimeRow(label: "Start Time", date: startTime)
+            } else {
+                DatePicker("Start", selection: $startTime, displayedComponents: [.date, .hourAndMinute])
                     .foregroundColor(.appPrimary).tint(.appGold)
                     .listRowBackground(Color.appSurface)
+            }
+            if !isSessionActive {
+                if isVerified {
+                    lockedDateTimeRow(label: "End Time", date: endTime)
+                } else {
+                    DatePicker("End", selection: $endTime, displayedComponents: [.date, .hourAndMinute])
+                        .foregroundColor(.appPrimary).tint(.appGold)
+                        .listRowBackground(Color.appSurface)
+                }
             }
             HStack {
                 Text("Break (min)").foregroundColor(.appPrimary)
@@ -446,14 +530,15 @@ struct LiveSessionDetailView: View {
             .listRowBackground(Color.appSurface)
 
             HStack {
-                Text("Net Result").foregroundColor(.appPrimary)
+                Text("Net Result")
+                    .foregroundColor(Color(hex: "#8A8A8A"))
                 Spacer()
                 HStack(spacing: 4) {
                     if isVerified {
                         Image(systemName: "lock.fill")
                             .font(.caption)
-                            .foregroundColor(.appGold)
-                            .shadow(color: Color.appGold.opacity(0.8), radius: 4, x: 0, y: 0)
+                            .foregroundColor(Color(hex: "#C9B47A"))
+                            .shadow(color: Color(hex: "#C9B47A"), radius: 6, x: 0, y: 0)
                     }
                     VStack(alignment: .trailing, spacing: 2) {
                         let netToShow = isVerified ? session.netProfitLoss : netPL
@@ -461,15 +546,22 @@ struct LiveSessionDetailView: View {
                         Text(AppFormatter.currencySigned(netToShow, code: currency))
                             .fontWeight(.semibold)
                             .foregroundColor(netToShow.profitColor)
-                            .shadow(color: isVerified ? netToShow.profitColor.opacity(0.8) : .clear, radius: 8, x: 0, y: 0)
+                            .shadow(color: isVerified ? Color(hex: "#C9B47A") : netToShow.profitColor.opacity(0.8), radius: isVerified ? 6 : 8, x: 0, y: 0)
                         if !isSameCurrency {
                             Text(AppFormatter.currencySigned(netBaseToShow, code: baseCurrency))
                                 .font(.caption)
                                 .foregroundColor(netBaseToShow.profitColor)
-                                .shadow(color: isVerified ? netBaseToShow.profitColor.opacity(0.8) : .clear, radius: 8, x: 0, y: 0)
+                                .shadow(color: isVerified ? Color(hex: "#C9B47A") : netBaseToShow.profitColor.opacity(0.8), radius: isVerified ? 6 : 8, x: 0, y: 0)
                         }
                     }
                 }
+                .padding(.horizontal, 10)
+                .padding(.vertical, 6)
+                .background(
+                    RoundedRectangle(cornerRadius: 14)
+                        .fill(Color(hex: "#C9B47A").opacity(isVerified ? 0.12 : 0))
+                        .blur(radius: isVerified ? 14 : 0)
+                )
             }
             .listRowBackground(Color.appSurface)
         } header: {
@@ -621,17 +713,28 @@ struct LiveSessionDetailView: View {
     func lockedRow(label: String, value: String) -> some View {
         Button { triggerLockHaptic() } label: {
             HStack {
-                Text(label).foregroundColor(.appPrimary)
+                Text(label)
+                    .foregroundColor(Color(hex: "#8A8A8A"))
                 Spacer()
-                Image(systemName: "lock.fill")
-                    .font(.caption)
-                    .foregroundColor(.appGold)
-                    .shadow(color: Color(hex: "#C9B47A"), radius: 6, x: 0, y: 0)
-                Text(value)
-                    .foregroundColor(.appPrimary)
-                    .shadow(color: Color(hex: "#C9B47A"), radius: 6, x: 0, y: 0)
+                HStack(spacing: 6) {
+                    Image(systemName: "lock.fill")
+                        .font(.caption)
+                        .foregroundColor(Color(hex: "#C9B47A"))
+                        .shadow(color: Color(hex: "#C9B47A"), radius: 6, x: 0, y: 0)
+                    Text(value)
+                        .foregroundColor(.white)
+                        .shadow(color: Color(hex: "#C9B47A"), radius: 6, x: 0, y: 0)
+                }
+                .padding(.horizontal, 10)
+                .padding(.vertical, 6)
+                .background(
+                    RoundedRectangle(cornerRadius: 14)
+                        .fill(Color(hex: "#C9B47A").opacity(0.12))
+                        .blur(radius: 14)
+                )
             }
         }
+        .buttonStyle(.plain)
         .listRowBackground(Color.appSurface)
     }
 
@@ -737,8 +840,9 @@ struct LiveSessionDetailView: View {
 
     func autoSave() {
         guard loaded else { return }
+        // Location is always editable (even when verified) so users can correct venue.
+        session.location = location
         if !isVerified {
-            session.location = location
             session.currency = currency
             session.buyIn = Double(buyIn) ?? 0
             session.cashOut = Double(cashOut) ?? 0
@@ -755,11 +859,12 @@ struct LiveSessionDetailView: View {
         session.blinds = "\(AppFormatter.blindValue(sbDouble))/\(AppFormatter.blindValue(bbDouble))"
         session.tableSize = Int16(tableSize)
         session.breakTime = breakTimeMinutes
-        session.startTime = startTime
-        // Only write endTime and duration once the session is stopped
-        if !isSessionActive {
-            session.endTime = endTime
-            session.duration = duration
+        if !isVerified {
+            session.startTime = startTime
+            if !isSessionActive {
+                session.endTime = endTime
+                session.duration = duration
+            }
         }
         session.tips = Double(tips) ?? 0
         session.netProfitLoss = netPL

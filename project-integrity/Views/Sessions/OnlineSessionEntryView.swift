@@ -155,6 +155,9 @@ struct OnlineSessionEntryView: View {
                         coordinator.dismissForm()
                     }
                 }
+                Button(setBalanceToButtonTitle) {
+                    performSetBalanceCorrection()
+                }
                 Button("OK", role: .cancel) {
                     let recorded = selectedPlatform?.currentBalance ?? 0
                     balanceBefore = recorded == 0 ? "" : String(format: "%.2f", recorded)
@@ -185,6 +188,10 @@ struct OnlineSessionEntryView: View {
 
     var discrepancyAlertTitle: String { "Balance Discrepancy" }
 
+    var setBalanceToButtonTitle: String {
+        "Set Balance to \(AppFormatter.currency(discrepancyEnteredBalance, code: platformCurrency))"
+    }
+
     var discrepancyAlertMessage: String {
         let entered = AppFormatter.currency(discrepancyEnteredBalance, code: platformCurrency)
         let recorded = AppFormatter.currency(discrepancyRecordedBalance, code: platformCurrency)
@@ -193,6 +200,29 @@ struct OnlineSessionEntryView: View {
         } else {
             return "You entered \(entered) but the platform balance is \(recorded). It appears there are extra funds in the record. Would you like to record a withdrawal or log an adjustment?"
         }
+    }
+
+    func performSetBalanceCorrection() {
+        guard let platform = selectedPlatform else { return }
+        let difference = discrepancyEnteredBalance - discrepancyRecordedBalance
+        let adj = Adjustment(context: viewContext)
+        adj.id = UUID()
+        adj.name = "Balance correction"
+        adj.amount = difference
+        adj.currency = platform.displayCurrency
+        adj.exchangeRateToBase = platform.latestFXConversionRate
+        adj.amountBase = difference * platform.latestFXConversionRate
+        adj.date = Date()
+        adj.notes = "Auto-generated balance correction from discrepancy detection"
+        adj.isOnline = true
+        adj.platform = platform
+        adj.location = nil
+        do {
+            try viewContext.save()
+        } catch {
+            print("Set balance correction save error: \(error)")
+        }
+        // Alert dismisses; session continues with entered balanceBefore
     }
 
     private var configuredForm: some View {
@@ -540,7 +570,6 @@ struct OnlineSessionEntryView: View {
         session.netProfitLossBase = netResultBase
         session.handsCount = Int32(handsOverride) ?? 0
         session.notes = notes.isEmpty ? nil : notes
-        platform.currentBalance = Double(balanceAfter) ?? platform.currentBalance
         do {
             try viewContext.save()
             coordinator.dismissForm()
@@ -573,6 +602,7 @@ struct OnlineSessionEntryView: View {
         try? viewContext.save()
     }
 
+    /// Only runs when balanceBefore field loses focus. Compares balanceBefore to platform.currentBalance; never uses balanceAfter.
     func checkBalanceDiscrepancy() {
         guard let platform = selectedPlatform else { return }
         let entered = Double(balanceBefore) ?? 0

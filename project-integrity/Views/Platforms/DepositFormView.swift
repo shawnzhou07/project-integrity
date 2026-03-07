@@ -220,9 +220,6 @@ struct DepositFormView: View {
             deposit.processingFee = processingFee
         }
 
-        // Platform balance increases by amount received (always in platform currency)
-        platform.currentBalance += deposit.amountReceived
-
         do {
             try viewContext.save()
             dismiss()

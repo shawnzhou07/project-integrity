@@ -672,7 +672,6 @@ struct SettingsView: View {
             platform.id = p.id
             platform.name = p.name
             platform.currency = p.currency
-            platform.currentBalance = p.currentBalance
             platform.createdAt = p.createdAt
             platformByName[p.name] = platform
             addedPlatforms += 1

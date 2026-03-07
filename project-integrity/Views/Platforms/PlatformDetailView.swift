@@ -8,13 +8,11 @@ struct PlatformDetailView: View {
 
     @EnvironmentObject var coordinator: ActiveSessionCoordinator
 
-    @State private var balanceStr = ""
     @State private var showDeposit = false
     @State private var showWithdrawal = false
     @State private var showAdjustment = false
     @State private var showDeleteAlert = false
     @State private var showWithdrawalDetail: Withdrawal? = nil
-    @State private var loaded = false
     @Environment(\.dismiss) private var dismiss
 
     var hasAnyRecords: Bool {
@@ -42,15 +40,6 @@ struct PlatformDetailView: View {
         }
         .navigationTitle(platform.displayName)
         .navigationBarTitleDisplayMode(.inline)
-        .onAppear {
-            if !loaded {
-                balanceStr = String(format: "%.2f", platform.currentBalance)
-                loaded = true
-            }
-        }
-        .onChange(of: platform.currentBalance) { _, newBalance in
-            balanceStr = String(format: "%.2f", newBalance)
-        }
         .sheet(isPresented: $showDeposit) {
             DepositFormView(platform: platform)
         }
@@ -82,7 +71,7 @@ struct PlatformDetailView: View {
                     Text("Net Result")
                         .font(.caption)
                         .foregroundColor(.appSecondary)
-                    Text(AppFormatter.currencySigned(platform.netResult) + " \(baseCurrency)")
+                    Text(AppFormatter.currencySigned(platform.netResult, code: baseCurrency))
                         .font(.title3)
                         .fontWeight(.bold)
                         .foregroundColor(platform.netResult.profitColor)
@@ -92,7 +81,7 @@ struct PlatformDetailView: View {
                             .foregroundColor(Color(hex: "#FF9500"))
                     }
                     if platform.displayCurrency != baseCurrency {
-                        Text(AppFormatter.currencySigned(platform.netResultInPlatformCurrency) + " \(platform.displayCurrency)")
+                        Text(AppFormatter.currencySigned(platform.netResultInPlatformCurrency, code: platform.displayCurrency))
                             .font(.caption)
                             .foregroundColor(platform.netResultInPlatformCurrency.profitColor)
                     }
@@ -102,18 +91,10 @@ struct PlatformDetailView: View {
                     Text("Current Balance")
                         .font(.caption)
                         .foregroundColor(.appSecondary)
-                    HStack(alignment: .firstTextBaseline, spacing: 2) {
-                        TextField("0.00", text: $balanceStr, onCommit: saveBalance)
-                            .font(.subheadline)
-                            .fontWeight(.semibold)
-                            .foregroundColor(.appPrimary)
-                            .keyboardType(.decimalPad)
-                            .multilineTextAlignment(.trailing)
-                            .fixedSize()
-                        Text(platform.displayCurrency)
-                            .font(.caption)
-                            .foregroundColor(.appSecondary)
-                    }
+                    Text(AppFormatter.currency(platform.currentBalance, code: platform.displayCurrency))
+                        .font(.subheadline)
+                        .fontWeight(.semibold)
+                        .foregroundColor(.appPrimary)
                 }
             }
 
@@ -395,11 +376,6 @@ struct PlatformDetailView: View {
             }
         }
     }
-
-    func saveBalance() {
-        platform.currentBalance = Double(balanceStr) ?? platform.currentBalance
-        try? viewContext.save()
-    }
 }
 
 struct DepositRowView: View {
@@ -429,11 +405,11 @@ struct DepositRowView: View {
             }
             Spacer()
             VStack(alignment: .trailing, spacing: 2) {
-                Text("+\(AppFormatter.currency(deposit.amountReceived, code: platformCurrency))")
+                Text(AppFormatter.currencySigned(deposit.amountReceived, code: platformCurrency))
                     .font(.subheadline)
                     .fontWeight(.medium)
                     .foregroundColor(.appProfit)
-                Text("-\(AppFormatter.currency(deposit.amountSent, code: baseCurrency))")
+                Text(AppFormatter.currencySigned(-deposit.amountSent, code: baseCurrency))
                     .font(.caption)
                     .foregroundColor(.appLoss)
             }
@@ -482,16 +458,16 @@ struct WithdrawalRowView: View {
             Spacer()
             VStack(alignment: .trailing, spacing: 2) {
                 if withdrawal.isPending {
-                    Text("-\(AppFormatter.currency(withdrawal.amountRequested, code: platformCurrency))")
+                    Text(AppFormatter.currencySigned(-withdrawal.amountRequested, code: platformCurrency))
                         .font(.subheadline)
                         .fontWeight(.medium)
                         .foregroundColor(.appLoss)
                 } else {
-                    Text("+\(AppFormatter.currency(withdrawal.amountReceived, code: baseCurrency))")
+                    Text(AppFormatter.currencySigned(withdrawal.amountReceived, code: baseCurrency))
                         .font(.subheadline)
                         .fontWeight(.medium)
                         .foregroundColor(.appProfit)
-                    Text("-\(AppFormatter.currency(withdrawal.amountRequested, code: platformCurrency))")
+                    Text(AppFormatter.currencySigned(-withdrawal.amountRequested, code: platformCurrency))
                         .font(.caption)
                         .foregroundColor(.appLoss)
                 }

@@ -152,7 +152,6 @@ struct AddPlatformView: View {
         let platform = Platform(context: viewContext)
         platform.id = UUID()
         platform.createdAt = Date()
-        platform.currentBalance = 0
         if selectedTab == 0, let template = selectedTemplate {
             platform.name = template.name
             platform.currency = template.currency

@@ -163,8 +163,6 @@ struct WithdrawalFormView: View {
             withdrawal.isPending = true
         }
 
-        platform.currentBalance -= withdrawal.amountRequested
-
         do {
             try viewContext.save()
             savedAmount = requested

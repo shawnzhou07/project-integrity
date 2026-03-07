@@ -198,7 +198,6 @@ struct OnboardingView: View {
             platform.name = name
             platform.currency = curr
             platform.createdAt = Date()
-            platform.currentBalance = 0
         }
         do {
             try viewContext.save()

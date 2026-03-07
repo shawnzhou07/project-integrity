@@ -20,6 +20,45 @@ extension Platform {
         (adjustments?.allObjects as? [Adjustment] ?? []).sorted { ($0.date ?? .distantPast) > ($1.date ?? .distantPast) }
     }
 
+    /// Most recent verified OnlineCash session (max endTime) for this platform. Only verified sessions are anchors.
+    var anchorSession: OnlineCash? {
+        onlineSessionsArray
+            .filter { $0.isVerified && $0.endTime != nil }
+            .max(by: { ($0.endTime ?? .distantPast) < ($1.endTime ?? .distantPast) })
+    }
+
+    /// Signed amount in platform currency (positive = credit, negative = debit) for balance computation.
+    static func effectiveAmount(for adjustment: Adjustment, platformCurrency: String) -> Double {
+        let curr = adjustment.currency ?? ""
+        if curr == platformCurrency {
+            return adjustment.amount
+        }
+        return adjustment.amountBase
+    }
+
+    /// Computed current balance from records. Never stored. Only verified sessions contribute as anchor.
+    var currentBalance: Double {
+        let deps = depositsArray
+        let withs = withdrawalsArray
+        let adjs = adjustmentsArray
+        let platformCurr = displayCurrency
+
+        guard !deps.isEmpty || !withs.isEmpty || !adjs.isEmpty else { return 0 }
+
+        if let anchor = anchorSession, let anchorEnd = anchor.endTime {
+            var balance = anchor.balanceAfter
+            balance += deps.filter { ($0.date ?? .distantPast) > anchorEnd }.reduce(0) { $0 + $1.amountReceived }
+            balance -= withs.filter { ($0.date ?? .distantPast) > anchorEnd }.reduce(0) { $0 + $1.amountRequested }
+            balance += adjs.filter { ($0.date ?? .distantPast) > anchorEnd }.reduce(0) { $0 + Platform.effectiveAmount(for: $1, platformCurrency: platformCurr) }
+            return balance
+        }
+
+        let totalDeposits = deps.reduce(0) { $0 + $1.amountReceived }
+        let totalWithdrawals = withs.reduce(0) { $0 + $1.amountRequested }
+        let totalAdjustments = adjs.reduce(0) { $0 + Platform.effectiveAmount(for: $1, platformCurrency: platformCurr) }
+        return totalDeposits - totalWithdrawals + totalAdjustments
+    }
+
     var latestFXConversionRate: Double {
         var transactions: [(date: Date, rateToBase: Double)] = []
         for d in depositsArray where d.isForeignExchange && d.effectiveExchangeRate > 0 {

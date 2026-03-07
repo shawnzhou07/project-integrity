@@ -363,9 +363,6 @@ struct OnlineSessionFormView: View {
         session.handsCount = Int32(handsOverride) ?? 0
         session.notes = notes.isEmpty ? nil : notes
 
-        // Update platform balance
-        platform.currentBalance = session.balanceAfter
-
         do {
             try viewContext.save()
             onSave()

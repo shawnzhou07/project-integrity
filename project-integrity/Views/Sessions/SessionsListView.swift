@@ -361,7 +361,7 @@ struct SessionRowView: View {
             Spacer()
 
             VStack(alignment: .trailing, spacing: 4) {
-                Text(AppFormatter.currencySigned(netResult))
+                Text(AppFormatter.currencySigned(netResult, code: currency))
                     .font(.subheadline)
                     .fontWeight(.semibold)
                     .foregroundColor(netResult.profitColor)

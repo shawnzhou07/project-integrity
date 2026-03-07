@@ -256,9 +256,6 @@ struct AddAdjustmentView: View {
         adjustment.location = nil
         adjustment.notes = notes.isEmpty ? nil : notes
 
-        // Apply directly to the platform's current balance.
-        platform.currentBalance += amountDouble
-
         do {
             try viewContext.save()
             dismiss()

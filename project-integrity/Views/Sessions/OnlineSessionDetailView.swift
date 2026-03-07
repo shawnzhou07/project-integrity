@@ -22,6 +22,7 @@ struct OnlineSessionDetailView: View {
     @State private var discrepancyResolved: Bool = false
     @State private var discrepancyDirection: DiscrepancyDirection = .higher
     @State private var discrepancyPlatformBalance: Double = 0
+    @State private var discrepancyEnteredBalance: Double = 0
     @Environment(\.dismiss) private var dismiss
 
     enum DiscrepancyDirection { case higher, lower }
@@ -76,6 +77,18 @@ struct OnlineSessionDetailView: View {
         let breakHours = breakTimeMinutes / 60.0
         let netHours = max(0, elapsed / 3600.0 - breakHours)
         return AppFormatter.duration(netHours)
+    }
+
+    var displayNetResult: Double {
+        session.isActive ? netPLBase : session.netProfitLossBase
+    }
+
+    var displayDurationText: String {
+        session.isActive ? activeDurationText : AppFormatter.duration(session.computedDuration)
+    }
+
+    var displayHands: Int {
+        effectiveHands
     }
 
     var body: some View {
@@ -159,22 +172,24 @@ struct OnlineSessionDetailView: View {
             .onChange(of: handsOverride) { _, _ in autoSave() }
             .onChange(of: notes) { _, _ in autoSave() }
             .onChange(of: selectedPlatform) { _, _ in autoSave() }
-            .onChange(of: startTime) { oldVal, newVal in
-                if oldVal.timeIntervalSince(newVal) > 20 * 3600 {
-                    startTime = Calendar.current.date(byAdding: .day, value: 1, to: newVal) ?? newVal
-                    return
+            .onChange(of: startTime) { _, _ in
+                if endTime <= startTime {
+                    showTimeAlert = true
+                    startTime = prevStartTime
+                } else {
+                    prevStartTime = startTime
+                    autoSave()
                 }
-                if endTime <= startTime { showTimeAlert = true; startTime = prevStartTime }
-                else { prevStartTime = startTime; autoSave() }
             }
-            .onChange(of: endTime) { oldVal, newVal in
+            .onChange(of: endTime) { _, _ in
                 guard !isSessionActive else { return }
-                if oldVal.timeIntervalSince(newVal) > 20 * 3600 {
-                    endTime = Calendar.current.date(byAdding: .day, value: 1, to: newVal) ?? newVal
-                    return
+                if endTime <= startTime {
+                    showTimeAlert = true
+                    endTime = prevEndTime
+                } else {
+                    prevEndTime = endTime
+                    autoSave()
                 }
-                if endTime <= startTime { showTimeAlert = true; endTime = prevEndTime }
-                else { prevEndTime = endTime; autoSave() }
             }
     }
 
@@ -183,7 +198,7 @@ struct OnlineSessionDetailView: View {
             .alert("Invalid Time Range", isPresented: $showTimeAlert) {
                 Button("OK", role: .cancel) {}
             } message: {
-                Text("End time must be after start time.")
+                Text("Start time must be before end time.")
             }
             .alert("Invalid Session Duration", isPresented: $showZeroDurationAlert) {
                 Button("OK", role: .cancel) {}
@@ -201,11 +216,11 @@ struct OnlineSessionDetailView: View {
                 Text("This cannot be undone.")
             }
             .alert("Verify Session?", isPresented: $showVerifyAlert) {
+                Button("Cancel", role: .cancel) {}
                 Button("Verify") { tryVerifySession() }
                     .foregroundStyle(Color.appGold)
-                Button("Cancel", role: .cancel) {}
             } message: {
-                Text("Verify this session? Balance Before and Balance After will be permanently locked and cannot be changed.")
+                Text("The following fields will be permanently locked and can never be edited:\n\n• Balance Before\n• Balance After\n• Start Time & Date\n• End Time & Date\n\nExchange rates, platform, game type, blinds, notes, and hands will remain editable.\n\nThis cannot be undone.")
             }
             .alert("Balance Discrepancy", isPresented: $showBalanceDiscrepancy) {
                 if discrepancyDirection == .higher {
@@ -242,6 +257,9 @@ struct OnlineSessionDetailView: View {
                         coordinator.selectedTab = 3
                         dismiss()
                     }
+                }
+                Button(setBalanceToButtonTitle) {
+                    performSetBalanceCorrection()
                 }
                 Button("OK", role: .cancel) {
                     discrepancyResolved = true
@@ -296,33 +314,67 @@ struct OnlineSessionDetailView: View {
         }
     }
 
-    // MARK: - Header
+    // MARK: - Header (unified with live: shown from session start)
 
     var headerSection: some View {
-        Section {
-            VStack(spacing: 8) {
-                HStack(spacing: 8) {
-                    if isVerified {
-                        Image(systemName: "lock.fill")
-                            .font(.system(size: 16, weight: .semibold))
-                            .foregroundColor(.appGold)
-                            .shadow(color: Color.appGold.opacity(0.6), radius: 6, x: 0, y: 0)
-                    }
-                    Text(AppFormatter.currencySigned(session.netProfitLossBase))
-                        .font(.system(size: 36, weight: .bold))
-                        .foregroundColor(session.netProfitLossBase.profitColor)
-                        .shadow(color: session.netProfitLossBase.profitColor.opacity(isVerified ? 0.5 : 0), radius: 8, x: 0, y: 0)
+        let hasBalanceAfter = (Double(balanceAfter) ?? 0) > 0 || session.balanceAfter > 0
+        let showZero = isSessionActive ? !hasBalanceAfter : false
+        let netVal = showZero ? 0 : (isSessionActive ? netPLBase : session.netProfitLossBase)
+        let glowColor = headerNetColor(netVal: netVal)
+        return Section {
+            VStack(alignment: .leading, spacing: 16) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Net Result")
+                        .font(.system(size: 13))
+                        .foregroundColor(Color(hex: "#8A8A8A"))
+                    Text(showZero ? AppFormatter.currency(0, code: baseCurrency) : AppFormatter.currencySigned(netVal, code: baseCurrency))
+                        .font(.system(size: 32, weight: .bold))
+                        .foregroundColor(glowColor)
+                        .shadow(color: glowColor.opacity(0.6), radius: 8, x: 0, y: 0)
+                        .shadow(color: glowColor.opacity(0.3), radius: 16, x: 0, y: 0)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 8)
+                        .background(
+                            RoundedRectangle(cornerRadius: 14)
+                                .fill(isVerified ? Color(hex: "#C9B47A").opacity(0.12) : Color.clear)
+                                .blur(radius: isVerified ? 14 : 0)
+                        )
                 }
-                HStack(spacing: 16) {
-                    Label(AppFormatter.duration(session.computedDuration), systemImage: "clock")
-                    Label(AppFormatter.handsCount(session.effectiveHands) + " hands", systemImage: "suit.spade")
+                .frame(maxWidth: .infinity, alignment: .leading)
+                HStack(spacing: 0) {
+                    headerStatColumn(title: "Duration", value: displayDurationText)
+                    headerStatColumn(title: "Hands", value: displayHands == 0 ? "—" : AppFormatter.handsCount(displayHands))
                 }
-                .font(.subheadline).foregroundColor(.appSecondary)
             }
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 8)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(20)
         }
-        .listRowBackground(Color.appSurface)
+        .listRowInsets(EdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 16))
+        .listRowBackground(
+            RoundedRectangle(cornerRadius: 16)
+                .fill(Color(hex: "#0D0D0D"))
+        )
+    }
+
+    private func headerNetColor(netVal: Double) -> Color {
+        if isVerified { return Color(hex: "#C9B47A") }
+        if netVal > 0 { return Color(hex: "#4CAF50") }
+        if netVal < 0 { return Color(hex: "#F44336") }
+        return Color(hex: "#8A8A8A")
+    }
+
+    private func headerStatColumn(title: String, value: String) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(title)
+                .font(.caption)
+                .foregroundColor(Color(hex: "#8A8A8A"))
+            Text(value)
+                .font(.subheadline)
+                .fontWeight(.medium)
+                .foregroundColor(.white)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     // MARK: - Platform
@@ -387,15 +439,51 @@ struct OnlineSessionDetailView: View {
 
     // MARK: - Timing
 
+    private func lockedDateTimeRow(label: String, date: Date) -> some View {
+        Button { triggerLockHaptic() } label: {
+            HStack {
+                Text(label)
+                    .foregroundColor(Color(hex: "#8A8A8A"))
+                Spacer()
+                HStack(spacing: 6) {
+                    Image(systemName: "lock.fill")
+                        .font(.caption)
+                        .foregroundColor(Color(hex: "#C9B47A"))
+                        .shadow(color: Color(hex: "#C9B47A"), radius: 6, x: 0, y: 0)
+                    Text("\(AppFormatter.longDate(date)) \(AppFormatter.timeOnly(date))")
+                        .foregroundColor(.white)
+                        .shadow(color: Color(hex: "#C9B47A"), radius: 6, x: 0, y: 0)
+                }
+                .padding(.horizontal, 10)
+                .padding(.vertical, 6)
+                .background(
+                    RoundedRectangle(cornerRadius: 14)
+                        .fill(Color(hex: "#C9B47A").opacity(0.12))
+                        .blur(radius: 14)
+                )
+            }
+        }
+        .buttonStyle(.plain)
+        .listRowBackground(Color.appSurface)
+    }
+
     var timingSection: some View {
         Section {
-            DatePicker("Start", selection: $startTime, displayedComponents: [.date, .hourAndMinute])
-                .foregroundColor(.appPrimary).tint(.appGold)
-                .listRowBackground(Color.appSurface)
-            if !isSessionActive {
-                DatePicker("End", selection: $endTime, displayedComponents: [.date, .hourAndMinute])
+            if isVerified {
+                lockedDateTimeRow(label: "Start Time", date: startTime)
+            } else {
+                DatePicker("Start", selection: $startTime, displayedComponents: [.date, .hourAndMinute])
                     .foregroundColor(.appPrimary).tint(.appGold)
                     .listRowBackground(Color.appSurface)
+            }
+            if !isSessionActive {
+                if isVerified {
+                    lockedDateTimeRow(label: "End Time", date: endTime)
+                } else {
+                    DatePicker("End", selection: $endTime, displayedComponents: [.date, .hourAndMinute])
+                        .foregroundColor(.appPrimary).tint(.appGold)
+                        .listRowBackground(Color.appSurface)
+                }
             }
             HStack {
                 Text("Break (min)").foregroundColor(.appPrimary)
@@ -431,19 +519,26 @@ struct OnlineSessionDetailView: View {
     var balanceSection: some View {
         Section {
             if isVerified {
-                lockedRow(label: "Balance Before", value: "\(platformCurrency) \(String(format: "%.2f", session.balanceBefore))")
+                lockedRow(label: "Balance Before", value: AppFormatter.currency(session.balanceBefore, code: platformCurrency))
             } else {
                 HStack {
                     Text("Balance Before").foregroundColor(.appPrimary)
                     Spacer()
                     Text(platformCurrency).font(.caption).foregroundColor(.appSecondary)
-                    CurrencyInputField(text: $balanceBefore, width: 100)
+                    CurrencyInputField(
+                        text: $balanceBefore,
+                        width: 100,
+                        onFocusChange: { focused in
+                            if !focused { checkDiscrepancy() }
+                            autoSave()
+                        }
+                    )
                 }
                 .listRowBackground(Color.appSurface)
             }
 
             if isVerified {
-                lockedRow(label: "Balance After", value: "\(platformCurrency) \(String(format: "%.2f", session.balanceAfter))")
+                lockedRow(label: "Balance After", value: AppFormatter.currency(session.balanceAfter, code: platformCurrency))
             } else {
                 HStack {
                     Text("Balance After").foregroundColor(.appPrimary)
@@ -456,14 +551,15 @@ struct OnlineSessionDetailView: View {
 
             // Net Result row — gold lock + glow when verified
             HStack {
-                Text("Net Result").foregroundColor(.appPrimary)
+                Text("Net Result")
+                    .foregroundColor(Color(hex: "#8A8A8A"))
                 Spacer()
                 HStack(spacing: 4) {
                     if isVerified {
                         Image(systemName: "lock.fill")
                             .font(.caption)
-                            .foregroundColor(.appGold)
-                            .shadow(color: Color.appGold.opacity(0.8), radius: 4, x: 0, y: 0)
+                            .foregroundColor(Color(hex: "#C9B47A"))
+                            .shadow(color: Color(hex: "#C9B47A"), radius: 6, x: 0, y: 0)
                     }
                     VStack(alignment: .trailing, spacing: 2) {
                         let netToShow = isVerified ? session.netProfitLoss : netPL
@@ -472,20 +568,27 @@ struct OnlineSessionDetailView: View {
                             .fontWeight(.semibold)
                             .foregroundColor(netToShow.profitColor)
                             .shadow(
-                                color: isVerified ? netToShow.profitColor.opacity(0.8) : .clear,
-                                radius: 8, x: 0, y: 0
+                                color: isVerified ? Color(hex: "#C9B47A") : netToShow.profitColor.opacity(0.8),
+                                radius: isVerified ? 6 : 8, x: 0, y: 0
                             )
                         if !isSameCurrency {
                             Text(AppFormatter.currencySigned(netBaseToShow, code: baseCurrency))
                                 .font(.caption)
                                 .foregroundColor(netBaseToShow.profitColor)
                                 .shadow(
-                                    color: isVerified ? netBaseToShow.profitColor.opacity(0.8) : .clear,
-                                    radius: 8, x: 0, y: 0
+                                    color: isVerified ? Color(hex: "#C9B47A") : netBaseToShow.profitColor.opacity(0.8),
+                                    radius: isVerified ? 6 : 8, x: 0, y: 0
                                 )
                         }
                     }
                 }
+                .padding(.horizontal, 10)
+                .padding(.vertical, 6)
+                .background(
+                    RoundedRectangle(cornerRadius: 14)
+                        .fill(Color(hex: "#C9B47A").opacity(isVerified ? 0.12 : 0))
+                        .blur(radius: isVerified ? 14 : 0)
+                )
             }
             .listRowBackground(Color.appSurface)
         } header: {
@@ -542,17 +645,28 @@ struct OnlineSessionDetailView: View {
     func lockedRow(label: String, value: String) -> some View {
         Button { triggerLockHaptic() } label: {
             HStack {
-                Text(label).foregroundColor(.appPrimary)
+                Text(label)
+                    .foregroundColor(Color(hex: "#8A8A8A"))
                 Spacer()
-                Image(systemName: "lock.fill")
-                    .font(.caption)
-                    .foregroundColor(.appGold)
-                    .shadow(color: Color(hex: "#C9B47A"), radius: 6, x: 0, y: 0)
-                Text(value)
-                    .foregroundColor(.appPrimary)
-                    .shadow(color: Color(hex: "#C9B47A"), radius: 6, x: 0, y: 0)
+                HStack(spacing: 6) {
+                    Image(systemName: "lock.fill")
+                        .font(.caption)
+                        .foregroundColor(Color(hex: "#C9B47A"))
+                        .shadow(color: Color(hex: "#C9B47A"), radius: 6, x: 0, y: 0)
+                    Text(value)
+                        .foregroundColor(.white)
+                        .shadow(color: Color(hex: "#C9B47A"), radius: 6, x: 0, y: 0)
+                }
+                .padding(.horizontal, 10)
+                .padding(.vertical, 6)
+                .background(
+                    RoundedRectangle(cornerRadius: 14)
+                        .fill(Color(hex: "#C9B47A").opacity(0.12))
+                        .blur(radius: 14)
+                )
             }
         }
+        .buttonStyle(.plain)
         .listRowBackground(Color.appSurface)
     }
 
@@ -561,29 +675,58 @@ struct OnlineSessionDetailView: View {
         generator.impactOccurred()
     }
 
+    var setBalanceToButtonTitle: String {
+        "Set Balance to \(AppFormatter.currency(discrepancyEnteredBalance, code: platformCurrency))"
+    }
+
     var discrepancyAlertMessage: String {
-        let currentBal = AppFormatter.currency(discrepancyPlatformBalance, code: platformCurrency)
-        let expectedBal = AppFormatter.currency(session.balanceAfter, code: platformCurrency)
+        let entered = AppFormatter.currency(discrepancyEnteredBalance, code: platformCurrency)
+        let recorded = AppFormatter.currency(discrepancyPlatformBalance, code: platformCurrency)
         if discrepancyDirection == .higher {
-            return "The platform now shows \(currentBal), but this session recorded \(expectedBal) as the balance after. It appears funds were added. Would you like to record a deposit or log an adjustment?"
+            return "You entered \(entered) as balance before but the platform balance is \(recorded). It appears funds are missing from the record. Would you like to add a deposit or log an adjustment?"
         } else {
-            return "The platform now shows \(currentBal), but this session recorded \(expectedBal) as the balance after. It appears funds are missing. Would you like to record a withdrawal or log an adjustment?"
+            return "You entered \(entered) as balance before but the platform balance is \(recorded). It appears there are extra funds in the record. Would you like to record a withdrawal or log an adjustment?"
         }
     }
 
+    func performSetBalanceCorrection() {
+        guard let platform = selectedPlatform else { return }
+        let difference = discrepancyEnteredBalance - discrepancyPlatformBalance
+        let adj = Adjustment(context: viewContext)
+        adj.id = UUID()
+        adj.name = "Balance correction"
+        adj.amount = difference
+        adj.currency = platform.displayCurrency
+        adj.exchangeRateToBase = platform.latestFXConversionRate
+        adj.amountBase = difference * platform.latestFXConversionRate
+        adj.date = Date()
+        adj.notes = "Auto-generated balance correction from discrepancy detection"
+        adj.isOnline = true
+        adj.platform = platform
+        adj.location = nil
+        do {
+            try viewContext.save()
+            discrepancyResolved = true
+        } catch {
+            print("Set balance correction save error: \(error)")
+        }
+    }
+
+    /// Discrepancy check runs only when balanceBefore is edited (on blur). Compares balanceBefore to platform.currentBalance; never uses balanceAfter.
     func checkDiscrepancy() {
         guard !session.isVerified, let platform = selectedPlatform else {
             discrepancyResolved = true
             return
         }
-        let currentBal = platform.currentBalance
-        let expectedBal = session.balanceAfter
-        guard abs(currentBal - expectedBal) > 0.01 else {
+        let entered = Double(balanceBefore) ?? 0
+        let recorded = platform.currentBalance
+        guard abs(entered - recorded) > 0.01 else {
             discrepancyResolved = true
             return
         }
-        discrepancyPlatformBalance = currentBal
-        discrepancyDirection = currentBal > expectedBal ? .higher : .lower
+        discrepancyEnteredBalance = entered
+        discrepancyPlatformBalance = recorded
+        discrepancyDirection = entered > recorded ? .higher : .lower
         showBalanceDiscrepancy = true
     }
 
@@ -594,7 +737,6 @@ struct OnlineSessionDetailView: View {
 
     func verifySession() {
         session.isVerified = true
-        selectedPlatform?.currentBalance = session.balanceAfter
         autoSave()
     }
 
@@ -644,12 +786,8 @@ struct OnlineSessionDetailView: View {
         if session.isActive, let start = session.startTime {
             elapsed = Date().timeIntervalSince(start)
         }
-        // Only check balance discrepancy for completed (stopped) sessions
-        if !session.isActive {
-            checkDiscrepancy()
-        } else {
-            discrepancyResolved = true
-        }
+        // Discrepancy is only checked when the user edits balanceBefore and blurs the field — never on load/appear
+        discrepancyResolved = true
     }
 
     func autoSave() {
@@ -663,16 +801,14 @@ struct OnlineSessionDetailView: View {
         session.tableSize = Int16(tableSize)
         session.tables = Int16(tables)
         session.breakTime = breakTimeMinutes
-        session.startTime = startTime
-        // Only write endTime and duration once the session is stopped
-        if !isSessionActive {
-            session.endTime = endTime
-            session.duration = duration
-        }
         if !isVerified {
+            session.startTime = startTime
+            if !isSessionActive {
+                session.endTime = endTime
+                session.duration = duration
+            }
             session.balanceBefore = Double(balanceBefore) ?? 0
             session.balanceAfter = Double(balanceAfter) ?? 0
-            selectedPlatform?.currentBalance = Double(balanceAfter) ?? 0
         }
         session.exchangeRateToBase = selectedPlatform?.latestFXConversionRate ?? 1.0
         session.netProfitLoss = netPL

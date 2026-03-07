@@ -13,7 +13,6 @@ struct PersistenceController {
         platform.id = UUID()
         platform.name = "PokerStars Ontario"
         platform.currency = "CAD"
-        platform.currentBalance = 500.0
         platform.createdAt = Date()
 
         // Sample online session

@@ -44,6 +44,22 @@ struct StatsView: View {
                 }
                 .padding()
             }
+            .overlay(alignment: .bottomTrailing) {
+                NavigationLink {
+                    ChartsView(filterState: filterState)
+                        .environment(\.managedObjectContext, viewContext)
+                } label: {
+                    Image(systemName: "chart.line.uptrend.xyaxis")
+                        .font(.system(size: 24))
+                        .foregroundColor(.black)
+                        .frame(width: 56, height: 56)
+                        .background(Color.appGold)
+                        .clipShape(Circle())
+                        .shadow(radius: 4)
+                }
+                .padding(.trailing, 16)
+                .padding(.bottom, 100)
+            }
         }
         .navigationTitle("Statistics")
         .navigationBarTitleDisplayMode(.inline)
@@ -94,7 +110,7 @@ struct StatsView: View {
             LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
                 StatCard(
                     title: "Hourly Rate",
-                    value: AppFormatter.hourlyRate(stats.hourlyRate),
+                    value: AppFormatter.hourlyRate(stats.hourlyRate, code: baseCurrency),
                     icon: "clock.fill",
                     color: stats.sessionCount == 0 ? .appSecondary : stats.hourlyRate.profitColor
                 )

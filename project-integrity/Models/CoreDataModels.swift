@@ -9,7 +9,6 @@ public class Platform: NSManagedObject {
     @NSManaged public var id: UUID?
     @NSManaged public var name: String?
     @NSManaged public var currency: String?
-    @NSManaged public var currentBalance: Double
     @NSManaged public var createdAt: Date?
     @NSManaged public var deposits: NSSet?
     @NSManaged public var withdrawals: NSSet?
