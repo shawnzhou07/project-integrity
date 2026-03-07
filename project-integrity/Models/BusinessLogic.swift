@@ -36,9 +36,13 @@ extension Platform {
         depositsArray.reduce(0) { $0 + $1.amountSent }
     }
 
-    // amountReceived on withdrawals is always in base currency (CAD).
+    // amountReceived on withdrawals is always in base currency (CAD). Only settled withdrawals.
     var totalWithdrawn: Double {
-        withdrawalsArray.reduce(0) { $0 + $1.amountReceived }
+        withdrawalsArray.filter { !$0.isPending }.reduce(0) { $0 + $1.amountReceived }
+    }
+
+    var pendingWithdrawalsCount: Int {
+        withdrawalsArray.filter { $0.isPending }.count
     }
 
     var totalAdjustments: Double {
@@ -46,16 +50,15 @@ extension Platform {
     }
 
     // Net result in base currency using weighted average deposit rate.
+    // For pending withdrawals: use amountRequested × weightedAvgDepositRate as estimate.
+    // For settled: use actual amountReceived.
     // Formula: totalWithdrawalsReceivedBase + (currentBalance × weightedAvgDepositRate) − totalDepositsSentBase
-    // weightedAvgDepositRate = totalDepositsSentBase / totalDepositsReceivedPlatformCurrency
-    // For same-currency platforms, weightedAvgDepositRate = 1.0 always.
     var netResult: Double {
         guard !depositsArray.isEmpty || !withdrawalsArray.isEmpty else { return 0 }
         let baseCurrencyCode = UserDefaults.standard.string(forKey: "baseCurrency") ?? "CAD"
         let platformCurrencyCode = currency ?? "USD"
         let isSameCurrency = platformCurrencyCode == baseCurrencyCode
 
-        let totalWithdrawalsReceivedBase = withdrawalsArray.reduce(0) { $0 + $1.amountReceived }
         let totalDepositsSentBase = depositsArray.reduce(0) { $0 + $1.amountSent }
         let totalDepositsReceivedPlatformCurrency = depositsArray.reduce(0) { $0 + $1.amountReceived }
 
@@ -66,6 +69,14 @@ extension Platform {
             weightedAvgDepositRate = 1.0
         } else {
             weightedAvgDepositRate = totalDepositsSentBase / totalDepositsReceivedPlatformCurrency
+        }
+
+        let totalWithdrawalsReceivedBase: Double = withdrawalsArray.reduce(0) { sum, w in
+            if w.isPending {
+                return sum + (w.amountRequested * weightedAvgDepositRate)
+            } else {
+                return sum + w.amountReceived
+            }
         }
 
         return totalWithdrawalsReceivedBase + (currentBalance * weightedAvgDepositRate) - totalDepositsSentBase

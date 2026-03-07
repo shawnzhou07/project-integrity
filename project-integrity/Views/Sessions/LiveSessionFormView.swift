@@ -1,6 +1,5 @@
 import SwiftUI
 import CoreData
-import CoreLocation
 
 struct LiveSessionFormView: View {
     @Environment(\.managedObjectContext) private var viewContext
@@ -11,8 +10,6 @@ struct LiveSessionFormView: View {
     // Location
     @State private var selectedLocation: Location? = nil
     @State private var showLocationPicker = false
-    @StateObject private var locationMgr = LocationManager()
-    @State private var showPermissionAlert = false
 
     private var legacyLocationString: String { selectedLocation?.name ?? "" }
 
@@ -88,7 +85,6 @@ struct LiveSessionFormView: View {
             currency = baseCurrency
             prevStartTime = startTime
             prevEndTime = endTime
-            startGPSAutoDetect()
         }
         .alert("Invalid Time Range", isPresented: $showTimeAlert) {
             Button("OK", role: .cancel) {}
@@ -100,20 +96,9 @@ struct LiveSessionFormView: View {
         } message: {
             Text("Start time and end time result in zero or negative duration. Please correct the session times before saving.")
         }
-        .alert("Location Permission Required", isPresented: $showPermissionAlert) {
-            Button("Open Settings") {
-                if let url = URL(string: UIApplication.openSettingsURLString) {
-                    UIApplication.shared.open(url)
-                }
-            }
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            Text("Location access is needed to auto-detect nearby venues. Enable it in Settings.")
-        }
         .sheet(isPresented: $showLocationPicker) {
             LocationPickerSheet(
                 selectedLocation: $selectedLocation,
-                gpsLocation: locationMgr.currentLocation,
                 onSelectNone: { selectedLocation = nil }
             )
             .environment(\.managedObjectContext, viewContext)
@@ -130,12 +115,7 @@ struct LiveSessionFormView: View {
                     showLocationPicker = true
                 } label: {
                     Group {
-                        if locationMgr.isLocating && selectedLocation == nil {
-                            HStack(spacing: 6) {
-                                ProgressView().scaleEffect(0.7).tint(.appSecondary)
-                                Text("Detecting…").foregroundColor(.appSecondary)
-                            }
-                        } else if let loc = selectedLocation {
+                        if let loc = selectedLocation {
                             Text(loc.displayName).foregroundColor(.appPrimary)
                         } else {
                             Text("Select").foregroundColor(.appSecondary)
@@ -367,23 +347,6 @@ struct LiveSessionFormView: View {
             }
             .disabled(!isValid)
             .listRowBackground(isValid ? Color.appGold : Color.appSurface2)
-        }
-    }
-
-    func startGPSAutoDetect() {
-        let status = CLLocationManager().authorizationStatus
-        guard status == .authorizedWhenInUse || status == .authorizedAlways || status == .notDetermined else { return }
-        locationMgr.startLocating { loc in
-            guard let loc else { return }
-            let nearby = self.allLocations.filter { saved in
-                let c = CLLocation(latitude: saved.latitude, longitude: saved.longitude)
-                return loc.distance(from: c) <= 100
-            }
-            if nearby.count == 1 {
-                self.selectedLocation = nearby.first
-            } else if nearby.count > 1 {
-                self.showLocationPicker = true
-            }
         }
     }
 

@@ -1,13 +1,11 @@
 import SwiftUI
 import CoreData
-import CoreLocation
 
 struct LocationPickerSheet: View {
     @Environment(\.managedObjectContext) private var viewContext
     @Environment(\.dismiss) private var dismiss
 
     @Binding var selectedLocation: Location?
-    let gpsLocation: CLLocation?
     var onSelectNone: () -> Void
 
     @FetchRequest(
@@ -18,28 +16,9 @@ struct LocationPickerSheet: View {
     @State private var searchText = ""
     @State private var showAddLocation = false
 
-    private let nearbyThreshold: CLLocationDistance = 500
-
-    var nearbyLocations: [Location] {
-        guard let gps = gpsLocation else { return [] }
-        return allLocations.filter { loc in
-            let c = CLLocation(latitude: loc.latitude, longitude: loc.longitude)
-            return gps.distance(from: c) <= nearbyThreshold
-        }.sorted { a, b in
-            let ca = CLLocation(latitude: a.latitude, longitude: a.longitude)
-            let cb = CLLocation(latitude: b.latitude, longitude: b.longitude)
-            return gps.distance(from: ca) < gps.distance(from: cb)
-        }
-    }
-
     var filteredLocations: [Location] {
         if searchText.isEmpty { return Array(allLocations) }
         return allLocations.filter { $0.displayName.localizedCaseInsensitiveContains(searchText) }
-    }
-
-    var filteredNearby: [Location] {
-        if searchText.isEmpty { return nearbyLocations }
-        return nearbyLocations.filter { $0.displayName.localizedCaseInsensitiveContains(searchText) }
     }
 
     var body: some View {
@@ -64,17 +43,6 @@ struct LocationPickerSheet: View {
                             }
                         }
                         .listRowBackground(Color.appSurface)
-                    }
-
-                    // Nearby
-                    if !filteredNearby.isEmpty {
-                        Section {
-                            ForEach(filteredNearby) { loc in
-                                locationRow(loc)
-                            }
-                        } header: {
-                            sectionHeader("Nearby", isActive: false)
-                        }
                     }
 
                     // All Locations

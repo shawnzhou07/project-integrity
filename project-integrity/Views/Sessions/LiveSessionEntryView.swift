@@ -1,7 +1,6 @@
 import SwiftUI
 import CoreData
 import Combine
-import CoreLocation
 
 struct LiveSessionEntryView: View {
     @Environment(\.managedObjectContext) private var viewContext
@@ -24,7 +23,6 @@ struct LiveSessionEntryView: View {
     // Location
     @State private var selectedLocation: Location? = nil
     @State private var showLocationPicker = false
-    @StateObject private var locationMgr = LocationManager()
 
     @FetchRequest(
         sortDescriptors: [NSSortDescriptor(keyPath: \Location.name, ascending: true)]
@@ -127,12 +125,10 @@ struct LiveSessionEntryView: View {
             .onAppear {
                 currency = baseCurrency
                 if let session = existingSession { loadFromExisting(session) }
-                else { startGPSAutoDetect() }
             }
             .sheet(isPresented: $showLocationPicker) {
                 LocationPickerSheet(
                     selectedLocation: $selectedLocation,
-                    gpsLocation: locationMgr.currentLocation,
                     onSelectNone: { selectedLocation = nil }
                 )
                 .environment(\.managedObjectContext, viewContext)
@@ -236,12 +232,7 @@ struct LiveSessionEntryView: View {
                     showLocationPicker = true
                 } label: {
                     Group {
-                        if locationMgr.isLocating && selectedLocation == nil {
-                            HStack(spacing: 6) {
-                                ProgressView().scaleEffect(0.7).tint(.appSecondary)
-                                Text("Detecting…").foregroundColor(.appSecondary)
-                            }
-                        } else if let loc = selectedLocation {
+                        if let loc = selectedLocation {
                             Text(loc.displayName).foregroundColor(.appPrimary)
                         } else {
                             Text("Select").foregroundColor(.appSecondary)
@@ -543,24 +534,6 @@ struct LiveSessionEntryView: View {
             if amt > 0 && base > 0 {
                 exchangeRateCashOutStr = String(format: "%.4f", base / amt)
                 cashOutRateManuallySet = true
-            }
-        }
-    }
-
-    func startGPSAutoDetect() {
-        let status = CLLocationManager().authorizationStatus
-        guard status == .authorizedWhenInUse || status == .authorizedAlways || status == .notDetermined else { return }
-        locationMgr.startLocating { loc in
-            guard let loc else { return }
-            let nearby = self.allLocations.filter { saved in
-                let c = CLLocation(latitude: saved.latitude, longitude: saved.longitude)
-                return loc.distance(from: c) <= 100
-            }
-            if nearby.count == 1 {
-                self.selectedLocation = nearby.first
-                self.autoSaveLocationIfActive(nearby.first!)
-            } else if nearby.count > 1 {
-                self.showLocationPicker = true
             }
         }
     }

@@ -82,5 +82,5 @@ let gameTypes = [
     "Mixed Games"
 ]
 
-let depositMethods = ["E-Transfer", "Bank Transfer", "Credit Card", "Crypto", "PayPal", "Other"]
-let withdrawalMethods = ["E-Transfer", "Bank Transfer", "Check", "Crypto", "PayPal", "Other"]
+let depositMethods = ["E-Transfer", "Debit Card", "Crypto", "Wire Transfer", "Other"]
+let withdrawalMethods = ["E-Transfer", "Bank Transfer", "Crypto", "Wire Transfer", "Other"]

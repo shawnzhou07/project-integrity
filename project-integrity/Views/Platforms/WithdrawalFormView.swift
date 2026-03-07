@@ -8,51 +8,26 @@ struct WithdrawalFormView: View {
     @AppStorage("baseCurrency") private var baseCurrency = "CAD"
 
     @State private var amountRequested = ""
-    @State private var amountReceived = ""
-    @State private var effectiveRateStr = ""
-    @State private var date = Date()
-    @State private var isForeignExchange = true
+    @State private var dateRequested = Date()
     @State private var method = "E-Transfer"
+    @State private var notes = ""
+    @State private var alreadyReceived = false
+    @State private var amountReceived = ""
+    @State private var settlementDate = Date()
 
-    @State private var showNegativeFeeWarning = false
-    @State private var showLockConfirmation = false
-    @State private var showProfitAlert = false
     @State private var showNegativeBalanceAlert = false
-
-    var isSameCurrency: Bool { platform.displayCurrency == baseCurrency }
-
-    // FX ON: effectiveRate = amountReceived(base) / amountRequested(platform) — base per platform unit
-    var computedEffectiveRate: Double {
-        let req = Double(amountRequested) ?? 0
-        let rec = Double(amountReceived) ?? 0
-        guard req > 0, rec > 0 else { return 0 }
-        return rec / req
-    }
-
-    // Processing fee (positive = loss)
-    var processingFee: Double {
-        (Double(amountRequested) ?? 0) - (Double(amountReceived) ?? 0)
-    }
+    @State private var showPendingConfirmation = false
+    @State private var showSettledConfirmation = false
+    @State private var savedAmount: Double = 0
+    @State private var savedCurrency: String = ""
 
     var isValid: Bool {
-        (Double(amountRequested) ?? 0) > 0 && (Double(amountReceived) ?? 0) > 0
-    }
-
-    // Block if received > requested in same-unit contexts (same currency or non-FX)
-    var isProfitTransaction: Bool {
         let requested = Double(amountRequested) ?? 0
-        let received = Double(amountReceived) ?? 0
-        guard requested > 0, received > 0 else { return false }
-        return (isSameCurrency || !isForeignExchange) && received > requested
-    }
-
-    var requestedLabel: String {
-        "Amount Requested (\(platform.displayCurrency))"
-    }
-
-    var receivedLabel: String {
-        if isSameCurrency { return "Amount Received (\(platform.displayCurrency))" }
-        return isForeignExchange ? "Amount Received (\(baseCurrency))" : "Amount Received (\(platform.displayCurrency))"
+        guard requested > 0 else { return false }
+        if alreadyReceived {
+            return (Double(amountReceived) ?? 0) > 0
+        }
+        return true
     }
 
     var body: some View {
@@ -60,9 +35,78 @@ struct WithdrawalFormView: View {
             ZStack {
                 Color.appBackground.ignoresSafeArea()
                 Form {
-                    amountsSection
-                    detailsSection
-                    saveSection
+                    Section {
+                        HStack {
+                            Text("Amount Requested (\(platform.displayCurrency))")
+                                .foregroundColor(.appPrimary)
+                            Spacer()
+                            CurrencyInputField(text: $amountRequested, width: 120)
+                        }
+                        .listRowBackground(Color.appSurface)
+
+                        DatePicker("Date Requested", selection: $dateRequested, displayedComponents: .date)
+                            .foregroundColor(.appPrimary)
+                            .tint(.appGold)
+                            .listRowBackground(Color.appSurface)
+
+                        Picker("Method", selection: $method) {
+                            ForEach(withdrawalMethods, id: \.self) { Text($0) }
+                        }
+                        .foregroundColor(.appPrimary)
+                        .tint(.appGold)
+                        .listRowBackground(Color.appSurface)
+
+                        Toggle(isOn: $alreadyReceived) {
+                            Text("Already Received")
+                                .foregroundColor(.appPrimary)
+                        }
+                        .tint(.appGold)
+                        .listRowBackground(Color.appSurface)
+
+                        if alreadyReceived {
+                            HStack {
+                                Text("Amount Received (\(baseCurrency))")
+                                    .foregroundColor(.appPrimary)
+                                Spacer()
+                                CurrencyInputField(text: $amountReceived, width: 120)
+                            }
+                            .listRowBackground(Color.appSurface)
+                            .transition(.opacity.combined(with: .move(edge: .top)))
+
+                            DatePicker("Settlement Date", selection: $settlementDate, displayedComponents: .date)
+                                .foregroundColor(.appPrimary)
+                                .tint(.appGold)
+                                .listRowBackground(Color.appSurface)
+                                .transition(.opacity.combined(with: .move(edge: .top)))
+                        }
+
+                        TextField("Notes (optional)", text: $notes, axis: .vertical)
+                            .lineLimit(3...6)
+                            .foregroundColor(.appPrimary)
+                            .listRowBackground(Color.appSurface)
+                    } header: {
+                        Text("Withdrawal").foregroundColor(.appGold).textCase(nil)
+                    }
+                    .animation(.easeInOut(duration: 0.25), value: alreadyReceived)
+
+                    Section {
+                        Button {
+                            let requested = Double(amountRequested) ?? 0
+                            if requested > 0 && platform.currentBalance - requested < 0 {
+                                showNegativeBalanceAlert = true
+                            } else {
+                                performSave()
+                            }
+                        } label: {
+                            Text("Save Withdrawal")
+                                .font(.headline)
+                                .foregroundColor(isValid ? .black : .appSecondary)
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 4)
+                        }
+                        .disabled(!isValid)
+                        .listRowBackground(isValid ? Color.appGold : Color.appSurface2)
+                    }
                 }
                 .scrollContentBackground(.hidden)
                 .background(Color.appBackground)
@@ -81,161 +125,55 @@ struct WithdrawalFormView: View {
             let requested = Double(amountRequested) ?? 0
             Text("This withdrawal of \(AppFormatter.currency(requested, code: platform.displayCurrency)) exceeds the current platform balance of \(AppFormatter.currency(platform.currentBalance, code: platform.displayCurrency)).")
         }
-        .alert("Invalid Transaction", isPresented: $showProfitAlert) {
-            Button("OK", role: .cancel) {}
+        .alert("Withdrawal Recorded", isPresented: $showPendingConfirmation) {
+            Button("OK") { dismiss() }
         } message: {
-            Text("You cannot receive more than you sent.")
+            Text("Withdrawal of \(AppFormatter.currency(savedAmount, code: savedCurrency)) recorded as pending. Mark it as received when funds arrive.")
         }
-        .alert("Negative Processing Fee", isPresented: $showNegativeFeeWarning) {
-            Button("Save Anyway") { showLockConfirmation = true }
-            Button("Cancel", role: .cancel) {}
+        .alert("Withdrawal Recorded", isPresented: $showSettledConfirmation) {
+            Button("OK") { dismiss() }
         } message: {
-            Text("A negative processing fee means you gained money on this transaction. Please verify this is correct.")
+            Text("Withdrawal recorded as received.")
         }
-        .alert("Permanently Save Withdrawal?", isPresented: $showLockConfirmation) {
-            Button("Confirm") { performSave() }
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            Text("This withdrawal will be permanently saved and cannot be edited or deleted after confirmation. Are you sure?")
-        }
-    }
-
-    var amountsSection: some View {
-        Section {
-            // Amount Requested (always in platform currency)
-            HStack {
-                Text(requestedLabel).foregroundColor(.appPrimary)
-                Spacer()
-                CurrencyInputField(text: $amountRequested, width: 120)
-            }
-            .listRowBackground(Color.appSurface)
-            .onChange(of: amountRequested) { _, _ in recalcRate() }
-
-            // Amount Received (base currency if FX ON, platform currency if FX OFF)
-            HStack {
-                Text(receivedLabel).foregroundColor(.appPrimary)
-                Spacer()
-                CurrencyInputField(text: $amountReceived, width: 120)
-            }
-            .listRowBackground(Color.appSurface)
-            .onChange(of: amountReceived) { _, _ in recalcRate() }
-
-            if !isSameCurrency {
-                Toggle(isOn: $isForeignExchange) {
-                    Text("Foreign Exchange").foregroundColor(.appPrimary)
-                }
-                .tint(.appGold)
-                .listRowBackground(Color.appSurface)
-
-                if isForeignExchange {
-                    // Effective Rate (auto-calc, editable)
-                    HStack {
-                        Text("Effective Rate").foregroundColor(.appSecondary)
-                        Spacer()
-                        CurrencyInputField(text: $effectiveRateStr, width: 90, maxDecimalPlaces: 4, textColor: .appGold)
-                        Text("\(baseCurrency)/\(platform.displayCurrency)")
-                            .font(.caption).foregroundColor(.appSecondary)
-                    }
-                    .listRowBackground(Color.appSurface)
-                } else {
-                    // Processing Fee (positive = loss; warn if negative)
-                    HStack {
-                        Text("Processing Fee (\(platform.displayCurrency))")
-                            .foregroundColor(.appSecondary)
-                        Spacer()
-                        Text(String(format: "%.2f", max(0, processingFee)))
-                            .foregroundColor(.appNeutral)
-                    }
-                    .listRowBackground(Color.appSurface)
-                }
-            } else if processingFee != 0 {
-                HStack {
-                    Text("Processing Fee (\(baseCurrency))").foregroundColor(.appSecondary)
-                    Spacer()
-                    Text(String(format: "%.2f", abs(processingFee))).foregroundColor(.appNeutral)
-                }
-                .listRowBackground(Color.appSurface)
-            }
-        } header: {
-            Text("Amounts").foregroundColor(.appGold).textCase(nil)
-        }
-    }
-
-    var detailsSection: some View {
-        Section {
-            DatePicker("Date", selection: $date, displayedComponents: .date)
-                .foregroundColor(.appPrimary).tint(.appGold)
-                .listRowBackground(Color.appSurface)
-
-            Picker("Method", selection: $method) {
-                ForEach(withdrawalMethods, id: \.self) { Text($0) }
-            }
-            .foregroundColor(.appPrimary).tint(.appGold)
-            .listRowBackground(Color.appSurface)
-        } header: {
-            Text("Details").foregroundColor(.appGold).textCase(nil)
-        }
-    }
-
-    var saveSection: some View {
-        Section {
-            Button {
-                let requested = Double(amountRequested) ?? 0
-                if requested > 0 && platform.currentBalance - requested < 0 {
-                    showNegativeBalanceAlert = true
-                } else if isProfitTransaction {
-                    showProfitAlert = true
-                } else if !isSameCurrency && !isForeignExchange && processingFee < 0 {
-                    showNegativeFeeWarning = true
-                } else {
-                    showLockConfirmation = true
-                }
-            } label: {
-                Text("Save Withdrawal")
-                    .font(.headline)
-                    .foregroundColor(isValid ? .black : .appSecondary)
-                    .frame(maxWidth: .infinity).padding(.vertical, 4)
-            }
-            .disabled(!isValid)
-            .listRowBackground(isValid ? Color.appGold : Color.appSurface2)
-        }
-    }
-
-    func recalcRate() {
-        let req = Double(amountRequested) ?? 0
-        let rec = Double(amountReceived) ?? 0
-        if req > 0, rec > 0 { effectiveRateStr = String(format: "%.4f", rec / req) }
     }
 
     func performSave() {
+        let requested = Double(amountRequested) ?? 0
+        guard requested > 0 else { return }
+
         let withdrawal = Withdrawal(context: viewContext)
         withdrawal.id = UUID()
-        withdrawal.date = date
-        withdrawal.amountRequested = Double(amountRequested) ?? 0
-        withdrawal.amountReceived = Double(amountReceived) ?? 0
+        withdrawal.date = dateRequested
+        withdrawal.amountRequested = requested
         withdrawal.method = method
+        withdrawal.notes = notes.isEmpty ? nil : notes
+        withdrawal.isForeignExchange = false
+        withdrawal.effectiveExchangeRate = 0
+        withdrawal.processingFee = 0
         withdrawal.platform = platform
 
-        if isSameCurrency {
-            withdrawal.isForeignExchange = false
-            withdrawal.effectiveExchangeRate = 0
-            withdrawal.processingFee = processingFee
-        } else if isForeignExchange {
-            withdrawal.isForeignExchange = true
-            withdrawal.effectiveExchangeRate = Double(effectiveRateStr) ?? computedEffectiveRate
-            withdrawal.processingFee = 0
+        if alreadyReceived {
+            let received = Double(amountReceived) ?? 0
+            withdrawal.amountReceived = received
+            withdrawal.settlementDate = settlementDate
+            withdrawal.isPending = false
         } else {
-            withdrawal.isForeignExchange = false
-            withdrawal.effectiveExchangeRate = 0
-            withdrawal.processingFee = processingFee
+            withdrawal.amountReceived = 0
+            withdrawal.settlementDate = nil
+            withdrawal.isPending = true
         }
 
-        // Platform balance decreases by amount requested (always in platform currency)
         platform.currentBalance -= withdrawal.amountRequested
 
         do {
             try viewContext.save()
-            dismiss()
+            savedAmount = requested
+            savedCurrency = platform.displayCurrency
+            if alreadyReceived {
+                showSettledConfirmation = true
+            } else {
+                showPendingConfirmation = true
+            }
         } catch {
             print("Save withdrawal error: \(error)")
         }

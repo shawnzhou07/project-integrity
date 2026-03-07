@@ -1,6 +1,5 @@
 import SwiftUI
 import CoreData
-import CoreLocation
 
 struct AddLocationSheet: View {
     @Environment(\.managedObjectContext) private var viewContext
@@ -9,9 +8,6 @@ struct AddLocationSheet: View {
     var onSave: ((Location) -> Void)? = nil
 
     @State private var locationName = ""
-    @State private var latitude: Double = 0.0
-    @State private var longitude: Double = 0.0
-    @StateObject private var locationMgr = LocationManager()
 
     var isValid: Bool { !locationName.trimmingCharacters(in: .whitespaces).isEmpty }
 
@@ -41,14 +37,6 @@ struct AddLocationSheet: View {
                         .disabled(!isValid)
                 }
             }
-            .onAppear {
-                locationMgr.startLocating { loc in
-                    if let loc {
-                        latitude = loc.coordinate.latitude
-                        longitude = loc.coordinate.longitude
-                    }
-                }
-            }
         }
     }
 
@@ -57,8 +45,6 @@ struct AddLocationSheet: View {
         let loc = Location(context: viewContext)
         loc.id = UUID()
         loc.name = locationName.trimmingCharacters(in: .whitespaces)
-        loc.latitude = latitude
-        loc.longitude = longitude
         loc.createdAt = Date()
         do {
             try viewContext.save()

@@ -175,11 +175,9 @@ struct PlatformRowView: View {
                     .font(.subheadline)
                     .fontWeight(.medium)
                     .foregroundColor(netResultColor)
-                if !isSameCurrency {
-                    Text(AppFormatter.currency(platform.currentBalance, code: platform.displayCurrency))
-                        .font(.caption)
-                        .foregroundColor(.appSecondary)
-                }
+                Text(AppFormatter.currency(platform.currentBalance, code: platform.displayCurrency))
+                    .font(.caption)
+                    .foregroundColor(.appSecondary)
             }
         }
         .padding(.vertical, 6)

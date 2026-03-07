@@ -8,8 +8,6 @@ import UniformTypeIdentifiers
 struct LocationExport: Codable {
     let id: UUID
     let name: String
-    let latitude: Double
-    let longitude: Double
     let createdAt: Date?
 }
 
@@ -109,6 +107,8 @@ struct WithdrawalExport: Codable {
     let effectiveExchangeRate: Double
     let processingFee: Double
     let method: String?
+    let isPending: Bool?
+    let settlementDate: Date?
 }
 
 struct AdjustmentExport: Codable {
@@ -595,7 +595,7 @@ struct SettingsView: View {
         let req = NSFetchRequest<Withdrawal>(entityName: "Withdrawal")
         let results = try viewContext.fetch(req)
         return results.map {
-            WithdrawalExport(id: $0.id ?? UUID(), platformName: $0.platform?.name, date: $0.date, amountRequested: $0.amountRequested, amountReceived: $0.amountReceived, isForeignExchange: $0.isForeignExchange, effectiveExchangeRate: $0.effectiveExchangeRate, processingFee: $0.processingFee, method: $0.method)
+            WithdrawalExport(id: $0.id ?? UUID(), platformName: $0.platform?.name, date: $0.date, amountRequested: $0.amountRequested, amountReceived: $0.amountReceived, isForeignExchange: $0.isForeignExchange, effectiveExchangeRate: $0.effectiveExchangeRate, processingFee: $0.processingFee, method: $0.method, isPending: $0.isPending, settlementDate: $0.settlementDate)
         }
     }
 
@@ -611,7 +611,7 @@ struct SettingsView: View {
         let req = NSFetchRequest<Location>(entityName: "Location")
         let results = try viewContext.fetch(req)
         return results.map {
-            LocationExport(id: $0.id ?? UUID(), name: $0.name ?? "", latitude: $0.latitude, longitude: $0.longitude, createdAt: $0.createdAt)
+            LocationExport(id: $0.id ?? UUID(), name: $0.name ?? "", createdAt: $0.createdAt)
         }
     }
 
@@ -768,6 +768,8 @@ struct SettingsView: View {
             withdrawal.effectiveExchangeRate = w.effectiveExchangeRate
             withdrawal.processingFee = w.processingFee
             withdrawal.method = w.method
+            withdrawal.isPending = w.isPending ?? false
+            withdrawal.settlementDate = w.settlementDate
             addedWithdrawals += 1
         }
 
@@ -796,8 +798,6 @@ struct SettingsView: View {
                 let location = Location(context: viewContext)
                 location.id = l.id
                 location.name = l.name
-                location.latitude = l.latitude
-                location.longitude = l.longitude
                 location.createdAt = l.createdAt
                 addedLocations += 1
             }

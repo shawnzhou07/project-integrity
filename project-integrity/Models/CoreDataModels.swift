@@ -131,8 +131,6 @@ extension LiveCash: Identifiable {}
 public class Location: NSManagedObject {
     @NSManaged public var id: UUID?
     @NSManaged public var name: String?
-    @NSManaged public var latitude: Double
-    @NSManaged public var longitude: Double
     @NSManaged public var createdAt: Date?
     @NSManaged public var sessions: NSSet?
 
@@ -192,6 +190,9 @@ public class Withdrawal: NSManagedObject {
     @NSManaged public var effectiveExchangeRate: Double
     @NSManaged public var processingFee: Double
     @NSManaged public var method: String?
+    @NSManaged public var notes: String?
+    @NSManaged public var isPending: Bool
+    @NSManaged public var settlementDate: Date?
     @NSManaged public var platform: Platform?
 
     public static func fetchRequest() -> NSFetchRequest<Withdrawal> {
