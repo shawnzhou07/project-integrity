@@ -38,6 +38,18 @@ struct MoreView: View {
                 .listRowBackground(Color.appSurface)
 
                 NavigationLink {
+                    CalendarView()
+                } label: {
+                    HStack {
+                        Image(systemName: "calendar")
+                            .foregroundColor(.appGold)
+                        Text("Calendar")
+                            .foregroundColor(.white)
+                    }
+                }
+                .listRowBackground(Color.appSurface)
+
+                NavigationLink {
                     AdjustmentsListView()
                 } label: {
                     HStack {

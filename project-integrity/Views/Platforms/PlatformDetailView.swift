@@ -13,6 +13,7 @@ struct PlatformDetailView: View {
     @State private var showAdjustment = false
     @State private var showDeleteAlert = false
     @State private var showWithdrawalDetail: Withdrawal? = nil
+    @State private var refreshID = UUID()
     @Environment(\.dismiss) private var dismiss
 
     var hasAnyRecords: Bool {
@@ -20,6 +21,11 @@ struct PlatformDetailView: View {
         !platform.withdrawalsArray.isEmpty ||
         !platform.onlineSessionsArray.isEmpty ||
         !platform.adjustmentsArray.isEmpty
+    }
+
+    func performRefresh() async {
+        viewContext.refreshAllObjects()
+        refreshID = UUID()
     }
 
     var body: some View {
@@ -37,7 +43,11 @@ struct PlatformDetailView: View {
                 }
                 .padding()
             }
+            .refreshable {
+                await performRefresh()
+            }
         }
+        .id(refreshID)
         .navigationTitle(platform.displayName)
         .navigationBarTitleDisplayMode(.inline)
         .sheet(isPresented: $showDeposit) {
@@ -49,6 +59,10 @@ struct PlatformDetailView: View {
         .sheet(isPresented: $showAdjustment) {
             AddAdjustmentView(initialPlatform: platform)
                 .environmentObject(coordinator)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: Notification.Name("sessionVerified"))) { _ in
+            viewContext.refreshAllObjects()
+            refreshID = UUID()
         }
         .alert("Delete Platform?", isPresented: $showDeleteAlert) {
             Button("Delete", role: .destructive) {

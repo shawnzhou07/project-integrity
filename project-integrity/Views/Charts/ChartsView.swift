@@ -445,8 +445,8 @@ struct ChartsView: View {
     private func tooltipView(for point: ChartPointData, position: CGPoint, plotSize: CGSize) -> some View {
         let isLowerHalf = position.y > plotSize.height / 2
         let isLeftSide = position.x < plotSize.width * 0.4
-        let tooltipW: CGFloat = 220
-        let tooltipH: CGFloat = 220
+        let tooltipW: CGFloat = 240
+        let tooltipH: CGFloat = 200
         let pad: CGFloat = 8
         let xOffset: CGFloat = isLeftSide ? 0 : -tooltipW
         let yOffset: CGFloat = isLowerHalf ? -tooltipH - 12 : 12
@@ -455,35 +455,40 @@ struct ChartsView: View {
         let xClamp = min(max(rawX, pad), plotSize.width - tooltipW - pad)
         let yClamp2 = min(max(rawY, pad), plotSize.height - tooltipH - pad)
 
-        return VStack(alignment: .leading, spacing: 0) {
-            Text(AppFormatter.longDate(point.startTime))
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundColor(goldColor)
+        return VStack(alignment: .leading, spacing: 10) {
+            // Date
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Date")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundColor(grayAxis)
+                Text(AppFormatter.longDate(point.startTime))
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundColor(goldColor)
+            }
+            Divider().background(dividerColor)
+            // X axis
+            VStack(alignment: .leading, spacing: 2) {
+                Text(xAxisTitle)
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundColor(grayAxis)
+                Text(xAxisValueString(point))
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundColor(.white)
+            }
+            Divider().background(dividerColor)
+            // Y axis
+            VStack(alignment: .leading, spacing: 2) {
+                Text(chartMetricTitle)
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundColor(grayAxis)
+                Text(chartValueFormatted(point.y))
+                    .font(.system(size: 15, weight: .bold))
+                    .foregroundColor(chartValueColor(point.y))
+            }
+            Divider().background(dividerColor)
             Text(point.isLive ? "Live · \(point.locationOrPlatformName)" : "Online · \(point.locationOrPlatformName)")
-                .font(.system(size: 12))
+                .font(.system(size: 11))
                 .foregroundColor(grayAxis)
-            Divider().background(dividerColor).padding(.vertical, 8)
-            Text(chartValueFormatted(point.y))
-                .font(.system(size: 20, weight: .bold))
-                .foregroundColor(chartValueColor(point.y))
-            Text(xAxisContextString(point))
-                .font(.system(size: 12))
-                .foregroundColor(grayAxis)
-            Divider().background(dividerColor).padding(.vertical, 8)
-            HStack(spacing: 16) {
-                Label(AppFormatter.duration(point.durationHours), systemImage: "clock")
-                    .font(.system(size: 12))
-                    .foregroundColor(grayAxis)
-                Label(point.hands == 0 ? "—" : "\(point.hands)", systemImage: "suit.spade.fill")
-                    .font(.system(size: 12))
-                    .foregroundColor(grayAxis)
-            }
-            if yAxis == .netResult || yAxis == .hourlyRate {
-                Text("\(point.gameType) \(point.blindsString)")
-                    .font(.system(size: 12))
-                    .foregroundColor(grayAxis)
-                    .padding(.top, 4)
-            }
         }
         .padding(14)
         .frame(minWidth: 200, alignment: .leading)
@@ -491,6 +496,17 @@ struct ChartsView: View {
         .cornerRadius(12)
         .shadow(radius: 10)
         .offset(x: xClamp, y: yClamp2)
+    }
+
+    private func xAxisValueString(_ point: ChartPointData) -> String {
+        switch xAxis {
+        case .sessions: return "Session \(point.sessionIndex)"
+        case .hoursPlayed: return String(format: "%.1f hrs", point.x)
+        case .handsPlayed:
+            let nf = NumberFormatter()
+            nf.numberStyle = .decimal
+            return nf.string(from: NSNumber(value: point.x)) ?? "\(Int(point.x)) hands"
+        }
     }
 
     private func chartValueColor(_ value: Double) -> Color {

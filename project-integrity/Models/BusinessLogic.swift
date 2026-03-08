@@ -262,6 +262,8 @@ struct StatsResult {
     var adjustmentsTotal: Double = 0
     var totalBBWon: Double = 0
     var totalBuyIn: Double = 0
+    /// Number of sessions that contribute to totalBuyIn (live only; used for avg buy-in).
+    var buyInSessionCount: Int = 0
     var totalTips: Double = 0
     var biggestWin: Double = 0
     var biggestLoss: Double = 0
@@ -282,7 +284,7 @@ struct StatsResult {
     }
 
     var avgBuyIn: Double {
-        sessionCount > 0 ? totalBuyIn / Double(sessionCount) : 0
+        buyInSessionCount > 0 ? totalBuyIn / Double(buyInSessionCount) : 0
     }
 
     var winRate: Double {
@@ -362,8 +364,6 @@ func computeStats(
         result.sessionCount += 1
         if session.netProfitLoss > 0 { result.winCount += 1 } else { result.loseCount += 1 }
         result.totalBBWon += session.bbWon
-        let rate = session.exchangeRateToBase > 0 ? session.exchangeRateToBase : 1.0
-        result.totalBuyIn += session.balanceBefore * rate
         if netBase > result.biggestWin { result.biggestWin = netBase }
         if netBase < result.biggestLoss { result.biggestLoss = netBase }
         if session.computedDuration > result.longestSessionHours { result.longestSessionHours = session.computedDuration }
@@ -381,6 +381,7 @@ func computeStats(
             ? session.buyIn * session.exchangeRateBuyIn
             : session.buyIn * (session.exchangeRateToBase > 0 ? session.exchangeRateToBase : 1.0)
         result.totalBuyIn += buyInBase
+        result.buyInSessionCount += 1
         let tipsRate: Double = session.exchangeRateCashOut > 0
             ? session.exchangeRateCashOut
             : (session.exchangeRateToBase > 0 ? session.exchangeRateToBase : 1.0)
@@ -444,8 +445,6 @@ func computeStats(
         result.sessionCount += 1
         if session.netProfitLoss > 0 { result.winCount += 1 } else { result.loseCount += 1 }
         result.totalBBWon += session.bbWon
-        let rate = session.exchangeRateToBase > 0 ? session.exchangeRateToBase : 1.0
-        result.totalBuyIn += session.balanceBefore * rate
         if netBase > result.biggestWin { result.biggestWin = netBase }
         if netBase < result.biggestLoss { result.biggestLoss = netBase }
         if session.computedDuration > result.longestSessionHours { result.longestSessionHours = session.computedDuration }
@@ -463,6 +462,7 @@ func computeStats(
             ? session.buyIn * session.exchangeRateBuyIn
             : session.buyIn * (session.exchangeRateToBase > 0 ? session.exchangeRateToBase : 1.0)
         result.totalBuyIn += buyInBase
+        result.buyInSessionCount += 1
         let tipsRate: Double = session.exchangeRateCashOut > 0
             ? session.exchangeRateCashOut
             : (session.exchangeRateToBase > 0 ? session.exchangeRateToBase : 1.0)

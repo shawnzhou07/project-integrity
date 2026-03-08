@@ -17,9 +17,22 @@ struct StatsView: View {
     @FetchRequest(sortDescriptors: [NSSortDescriptor(keyPath: \Platform.name, ascending: true)])
     private var platforms: FetchedResults<Platform>
 
+    @FetchRequest(
+        sortDescriptors: [],
+        predicate: NSPredicate(format: "startTime != nil AND endTime == nil"),
+        animation: .default
+    ) private var activeLiveSessions: FetchedResults<LiveCash>
+
+    @FetchRequest(
+        sortDescriptors: [],
+        predicate: NSPredicate(format: "startTime != nil AND endTime == nil"),
+        animation: .default
+    ) private var activeOnlineSessions: FetchedResults<OnlineCash>
+
     @State private var includeAdjustments = true
     @State private var showFilterSheet = false
     @StateObject private var filterState = FilterState()
+    @State private var refreshID = UUID()
 
     var stats: StatsResult {
         computeStats(
@@ -29,6 +42,26 @@ struct StatsView: View {
             filterState: filterState,
             showAdjustments: includeAdjustments
         )
+    }
+
+    func performRefresh() async {
+        viewContext.refreshAllObjects()
+        refreshID = UUID()
+    }
+
+    private var hasActiveSession: Bool {
+        !activeLiveSessions.isEmpty || !activeOnlineSessions.isEmpty
+    }
+
+    /// Floating bar height (56pt) + its bottom padding (8pt) + 16pt gap above it.
+    private static let floatingBarHeight: CGFloat = 56
+    private static let floatingBarBottomPadding: CGFloat = 8
+    private static let gapAboveFloatingBar: CGFloat = 16
+
+    private var floatingButtonBottomPadding: CGFloat {
+        hasActiveSession
+            ? (Self.floatingBarHeight + Self.floatingBarBottomPadding + Self.gapAboveFloatingBar)
+            : Self.gapAboveFloatingBar
     }
 
     var body: some View {
@@ -44,23 +77,44 @@ struct StatsView: View {
                 }
                 .padding()
             }
+            .refreshable {
+                await performRefresh()
+            }
             .overlay(alignment: .bottomTrailing) {
-                NavigationLink {
-                    ChartsView(filterState: filterState)
-                        .environment(\.managedObjectContext, viewContext)
-                } label: {
-                    Image(systemName: "chart.line.uptrend.xyaxis")
-                        .font(.system(size: 24))
-                        .foregroundColor(.black)
-                        .frame(width: 56, height: 56)
-                        .background(Color.appGold)
-                        .clipShape(Circle())
-                        .shadow(radius: 4)
+                VStack(alignment: .trailing, spacing: 12) {
+                    NavigationLink {
+                        ChartsView(filterState: filterState)
+                            .environment(\.managedObjectContext, viewContext)
+                    } label: {
+                        Image(systemName: "chart.line.uptrend.xyaxis")
+                            .font(.system(size: 24))
+                            .foregroundColor(Color(hex: "#000000"))
+                            .frame(width: 56, height: 56)
+                            .background(Color(hex: "#C9B47A"))
+                            .clipShape(Circle())
+                            .shadow(color: .black.opacity(0.3), radius: 4, x: 0, y: 2)
+                    }
+                    .buttonStyle(.plain)
+                    NavigationLink {
+                        CalendarView()
+                            .environment(\.managedObjectContext, viewContext)
+                    } label: {
+                        Image(systemName: "calendar")
+                            .font(.system(size: 24))
+                            .foregroundColor(Color(hex: "#000000"))
+                            .frame(width: 56, height: 56)
+                            .background(Color(hex: "#C9B47A"))
+                            .clipShape(Circle())
+                            .shadow(color: .black.opacity(0.3), radius: 4, x: 0, y: 2)
+                    }
+                    .buttonStyle(.plain)
                 }
                 .padding(.trailing, 16)
-                .padding(.bottom, 100)
+                .padding(.bottom, floatingButtonBottomPadding)
+                .animation(.easeInOut(duration: 0.25), value: floatingButtonBottomPadding)
             }
         }
+        .id(refreshID)
         .navigationTitle("Statistics")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {

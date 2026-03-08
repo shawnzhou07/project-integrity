@@ -298,19 +298,27 @@ struct LiveSessionDetailView: View {
                     Text("Net Result")
                         .font(.system(size: 13))
                         .foregroundColor(Color(hex: "#8A8A8A"))
-                    Text(showZero ? AppFormatter.currency(0, code: baseCurrency) : AppFormatter.currencySigned(netVal, code: baseCurrency))
-                        .font(.system(size: 32, weight: .bold))
-                        .foregroundColor(glowColor)
-                        .shadow(color: glowColor.opacity(0.6), radius: 8, x: 0, y: 0)
-                        .shadow(color: glowColor.opacity(0.3), radius: 16, x: 0, y: 0)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 8)
-                        .background(
-                            RoundedRectangle(cornerRadius: 14)
-                                .fill(isVerified ? Color(hex: "#C9B47A").opacity(0.12) : Color.clear)
-                                .blur(radius: isVerified ? 14 : 0)
-                        )
+                    HStack(alignment: .firstTextBaseline, spacing: 8) {
+                        Text(showZero ? AppFormatter.currency(0, code: baseCurrency) : AppFormatter.currencySigned(netVal, code: baseCurrency))
+                            .font(.system(size: 32, weight: .bold))
+                            .foregroundColor(glowColor)
+                            .shadow(color: isVerified ? glowColor.opacity(0.6) : .clear, radius: isVerified ? 8 : 0, x: 0, y: 0)
+                            .shadow(color: isVerified ? glowColor.opacity(0.3) : .clear, radius: isVerified ? 16 : 0, x: 0, y: 0)
+                        if isVerified {
+                            Image(systemName: "lock.fill")
+                                .font(.title3)
+                                .foregroundColor(Color(hex: "#C9B47A"))
+                                .shadow(color: Color(hex: "#C9B47A"), radius: 6, x: 0, y: 0)
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+                    .background(
+                        RoundedRectangle(cornerRadius: 14)
+                            .fill(isVerified ? Color(hex: "#C9B47A").opacity(0.12) : Color.clear)
+                            .blur(radius: isVerified ? 14 : 0)
+                    )
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 HStack(spacing: 0) {
@@ -329,7 +337,6 @@ struct LiveSessionDetailView: View {
     }
 
     private func headerNetColor(netVal: Double) -> Color {
-        if isVerified { return Color(hex: "#C9B47A") }
         if netVal > 0 { return Color(hex: "#4CAF50") }
         if netVal < 0 { return Color(hex: "#F44336") }
         return Color(hex: "#8A8A8A")
@@ -427,18 +434,18 @@ struct LiveSessionDetailView: View {
                 HStack(spacing: 6) {
                     Image(systemName: "lock.fill")
                         .font(.caption)
-                        .foregroundColor(Color(hex: "#C9B47A"))
-                        .shadow(color: Color(hex: "#C9B47A"), radius: 6, x: 0, y: 0)
+                        .foregroundColor(isVerified ? Color(hex: "#C9B47A") : Color(hex: "#8A8A8A"))
+                        .shadow(color: isVerified ? Color(hex: "#C9B47A") : .clear, radius: isVerified ? 6 : 0, x: 0, y: 0)
                     Text("\(AppFormatter.longDate(date)) \(AppFormatter.timeOnly(date))")
                         .foregroundColor(.white)
-                        .shadow(color: Color(hex: "#C9B47A"), radius: 6, x: 0, y: 0)
+                        .shadow(color: isVerified ? Color(hex: "#C9B47A") : .clear, radius: isVerified ? 6 : 0, x: 0, y: 0)
                 }
                 .padding(.horizontal, 10)
                 .padding(.vertical, 6)
                 .background(
                     RoundedRectangle(cornerRadius: 14)
-                        .fill(Color(hex: "#C9B47A").opacity(0.12))
-                        .blur(radius: 14)
+                        .fill(isVerified ? Color(hex: "#C9B47A").opacity(0.12) : Color.clear)
+                        .blur(radius: isVerified ? 14 : 0)
                 )
             }
         }
@@ -546,12 +553,12 @@ struct LiveSessionDetailView: View {
                         Text(AppFormatter.currencySigned(netToShow, code: currency))
                             .fontWeight(.semibold)
                             .foregroundColor(netToShow.profitColor)
-                            .shadow(color: isVerified ? Color(hex: "#C9B47A") : netToShow.profitColor.opacity(0.8), radius: isVerified ? 6 : 8, x: 0, y: 0)
+                            .shadow(color: isVerified ? Color(hex: "#C9B47A") : .clear, radius: isVerified ? 6 : 0, x: 0, y: 0)
                         if !isSameCurrency {
                             Text(AppFormatter.currencySigned(netBaseToShow, code: baseCurrency))
                                 .font(.caption)
                                 .foregroundColor(netBaseToShow.profitColor)
-                                .shadow(color: isVerified ? Color(hex: "#C9B47A") : netBaseToShow.profitColor.opacity(0.8), radius: isVerified ? 6 : 8, x: 0, y: 0)
+                                .shadow(color: isVerified ? Color(hex: "#C9B47A") : .clear, radius: isVerified ? 6 : 0, x: 0, y: 0)
                         }
                     }
                 }
@@ -719,18 +726,18 @@ struct LiveSessionDetailView: View {
                 HStack(spacing: 6) {
                     Image(systemName: "lock.fill")
                         .font(.caption)
-                        .foregroundColor(Color(hex: "#C9B47A"))
-                        .shadow(color: Color(hex: "#C9B47A"), radius: 6, x: 0, y: 0)
+                        .foregroundColor(isVerified ? Color(hex: "#C9B47A") : Color(hex: "#8A8A8A"))
+                        .shadow(color: isVerified ? Color(hex: "#C9B47A") : .clear, radius: isVerified ? 6 : 0, x: 0, y: 0)
                     Text(value)
                         .foregroundColor(.white)
-                        .shadow(color: Color(hex: "#C9B47A"), radius: 6, x: 0, y: 0)
+                        .shadow(color: isVerified ? Color(hex: "#C9B47A") : .clear, radius: isVerified ? 6 : 0, x: 0, y: 0)
                 }
                 .padding(.horizontal, 10)
                 .padding(.vertical, 6)
                 .background(
                     RoundedRectangle(cornerRadius: 14)
-                        .fill(Color(hex: "#C9B47A").opacity(0.12))
-                        .blur(radius: 14)
+                        .fill(isVerified ? Color(hex: "#C9B47A").opacity(0.12) : Color.clear)
+                        .blur(radius: isVerified ? 14 : 0)
                 )
             }
         }
@@ -765,6 +772,7 @@ struct LiveSessionDetailView: View {
         guard duration > 0 else { showZeroDurationAlert = true; return }
         session.isVerified = true
         autoSave()
+        NotificationCenter.default.post(name: Notification.Name("sessionVerified"), object: nil)
     }
 
     /// Stop the active session: record end time and transition to stopped state.

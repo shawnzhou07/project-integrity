@@ -220,7 +220,7 @@ struct OnlineSessionDetailView: View {
                 Button("Verify") { tryVerifySession() }
                     .foregroundStyle(Color.appGold)
             } message: {
-                Text("The following fields will be permanently locked and can never be edited:\n\n• Balance Before\n• Balance After\n• Start Time & Date\n• End Time & Date\n\nExchange rates, platform, game type, blinds, notes, and hands will remain editable.\n\nThis cannot be undone.")
+                Text("The following fields will be permanently locked and can never be edited:\n\n• Balance Before\n• Balance After\n• Platform\n• Start Time & Date\n• End Time & Date\n\nExchange rates, game type, blinds, notes, and hands will remain editable.\n\nThis cannot be undone.")
             }
             .alert("Balance Discrepancy", isPresented: $showBalanceDiscrepancy) {
                 if discrepancyDirection == .higher {
@@ -327,19 +327,27 @@ struct OnlineSessionDetailView: View {
                     Text("Net Result")
                         .font(.system(size: 13))
                         .foregroundColor(Color(hex: "#8A8A8A"))
-                    Text(showZero ? AppFormatter.currency(0, code: baseCurrency) : AppFormatter.currencySigned(netVal, code: baseCurrency))
-                        .font(.system(size: 32, weight: .bold))
-                        .foregroundColor(glowColor)
-                        .shadow(color: glowColor.opacity(0.6), radius: 8, x: 0, y: 0)
-                        .shadow(color: glowColor.opacity(0.3), radius: 16, x: 0, y: 0)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 8)
-                        .background(
-                            RoundedRectangle(cornerRadius: 14)
-                                .fill(isVerified ? Color(hex: "#C9B47A").opacity(0.12) : Color.clear)
-                                .blur(radius: isVerified ? 14 : 0)
-                        )
+                    HStack(alignment: .firstTextBaseline, spacing: 8) {
+                        Text(showZero ? AppFormatter.currency(0, code: baseCurrency) : AppFormatter.currencySigned(netVal, code: baseCurrency))
+                            .font(.system(size: 32, weight: .bold))
+                            .foregroundColor(glowColor)
+                            .shadow(color: isVerified ? glowColor.opacity(0.6) : .clear, radius: isVerified ? 8 : 0, x: 0, y: 0)
+                            .shadow(color: isVerified ? glowColor.opacity(0.3) : .clear, radius: isVerified ? 16 : 0, x: 0, y: 0)
+                        if isVerified {
+                            Image(systemName: "lock.fill")
+                                .font(.title3)
+                                .foregroundColor(Color(hex: "#C9B47A"))
+                                .shadow(color: Color(hex: "#C9B47A"), radius: 6, x: 0, y: 0)
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+                    .background(
+                        RoundedRectangle(cornerRadius: 14)
+                            .fill(isVerified ? Color(hex: "#C9B47A").opacity(0.12) : Color.clear)
+                            .blur(radius: isVerified ? 14 : 0)
+                    )
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 HStack(spacing: 0) {
@@ -358,7 +366,6 @@ struct OnlineSessionDetailView: View {
     }
 
     private func headerNetColor(netVal: Double) -> Color {
-        if isVerified { return Color(hex: "#C9B47A") }
         if netVal > 0 { return Color(hex: "#4CAF50") }
         if netVal < 0 { return Color(hex: "#F44336") }
         return Color(hex: "#8A8A8A")
@@ -381,17 +388,24 @@ struct OnlineSessionDetailView: View {
 
     var platformSection: some View {
         Section {
-            Button { showPlatformPicker = true } label: {
-                HStack {
-                    Text("Platform").foregroundColor(.appPrimary)
-                    Spacer()
-                    Text(selectedPlatform?.displayName ?? "—").foregroundColor(.appGold)
-                    Text("·").foregroundColor(.appSecondary)
-                    Text(platformCurrency).foregroundColor(.appSecondary)
-                    Image(systemName: "chevron.right").font(.caption).foregroundColor(.appSecondary)
+            if isVerified {
+                lockedRow(
+                    label: "Platform",
+                    value: [selectedPlatform?.displayName ?? "—", platformCurrency].joined(separator: " · ")
+                )
+            } else {
+                Button { showPlatformPicker = true } label: {
+                    HStack {
+                        Text("Platform").foregroundColor(.appPrimary)
+                        Spacer()
+                        Text(selectedPlatform?.displayName ?? "—").foregroundColor(.appGold)
+                        Text("·").foregroundColor(.appSecondary)
+                        Text(platformCurrency).foregroundColor(.appSecondary)
+                        Image(systemName: "chevron.right").font(.caption).foregroundColor(.appSecondary)
+                    }
                 }
+                .listRowBackground(Color.appSurface)
             }
-            .listRowBackground(Color.appSurface)
         } header: {
             Text("Platform").foregroundColor(.appGold).textCase(nil)
         }
@@ -448,18 +462,18 @@ struct OnlineSessionDetailView: View {
                 HStack(spacing: 6) {
                     Image(systemName: "lock.fill")
                         .font(.caption)
-                        .foregroundColor(Color(hex: "#C9B47A"))
-                        .shadow(color: Color(hex: "#C9B47A"), radius: 6, x: 0, y: 0)
+                        .foregroundColor(isVerified ? Color(hex: "#C9B47A") : Color(hex: "#8A8A8A"))
+                        .shadow(color: isVerified ? Color(hex: "#C9B47A") : .clear, radius: isVerified ? 6 : 0, x: 0, y: 0)
                     Text("\(AppFormatter.longDate(date)) \(AppFormatter.timeOnly(date))")
                         .foregroundColor(.white)
-                        .shadow(color: Color(hex: "#C9B47A"), radius: 6, x: 0, y: 0)
+                        .shadow(color: isVerified ? Color(hex: "#C9B47A") : .clear, radius: isVerified ? 6 : 0, x: 0, y: 0)
                 }
                 .padding(.horizontal, 10)
                 .padding(.vertical, 6)
                 .background(
                     RoundedRectangle(cornerRadius: 14)
-                        .fill(Color(hex: "#C9B47A").opacity(0.12))
-                        .blur(radius: 14)
+                        .fill(isVerified ? Color(hex: "#C9B47A").opacity(0.12) : Color.clear)
+                        .blur(radius: isVerified ? 14 : 0)
                 )
             }
         }
@@ -568,16 +582,16 @@ struct OnlineSessionDetailView: View {
                             .fontWeight(.semibold)
                             .foregroundColor(netToShow.profitColor)
                             .shadow(
-                                color: isVerified ? Color(hex: "#C9B47A") : netToShow.profitColor.opacity(0.8),
-                                radius: isVerified ? 6 : 8, x: 0, y: 0
+                                color: isVerified ? Color(hex: "#C9B47A") : .clear,
+                                radius: isVerified ? 6 : 0, x: 0, y: 0
                             )
                         if !isSameCurrency {
                             Text(AppFormatter.currencySigned(netBaseToShow, code: baseCurrency))
                                 .font(.caption)
                                 .foregroundColor(netBaseToShow.profitColor)
                                 .shadow(
-                                    color: isVerified ? Color(hex: "#C9B47A") : netBaseToShow.profitColor.opacity(0.8),
-                                    radius: isVerified ? 6 : 8, x: 0, y: 0
+                                    color: isVerified ? Color(hex: "#C9B47A") : .clear,
+                                    radius: isVerified ? 6 : 0, x: 0, y: 0
                                 )
                         }
                     }
@@ -651,18 +665,18 @@ struct OnlineSessionDetailView: View {
                 HStack(spacing: 6) {
                     Image(systemName: "lock.fill")
                         .font(.caption)
-                        .foregroundColor(Color(hex: "#C9B47A"))
-                        .shadow(color: Color(hex: "#C9B47A"), radius: 6, x: 0, y: 0)
+                        .foregroundColor(isVerified ? Color(hex: "#C9B47A") : Color(hex: "#8A8A8A"))
+                        .shadow(color: isVerified ? Color(hex: "#C9B47A") : .clear, radius: isVerified ? 6 : 0, x: 0, y: 0)
                     Text(value)
                         .foregroundColor(.white)
-                        .shadow(color: Color(hex: "#C9B47A"), radius: 6, x: 0, y: 0)
+                        .shadow(color: isVerified ? Color(hex: "#C9B47A") : .clear, radius: isVerified ? 6 : 0, x: 0, y: 0)
                 }
                 .padding(.horizontal, 10)
                 .padding(.vertical, 6)
                 .background(
                     RoundedRectangle(cornerRadius: 14)
-                        .fill(Color(hex: "#C9B47A").opacity(0.12))
-                        .blur(radius: 14)
+                        .fill(isVerified ? Color(hex: "#C9B47A").opacity(0.12) : Color.clear)
+                        .blur(radius: isVerified ? 14 : 0)
                 )
             }
         }
@@ -738,6 +752,7 @@ struct OnlineSessionDetailView: View {
     func verifySession() {
         session.isVerified = true
         autoSave()
+        NotificationCenter.default.post(name: Notification.Name("sessionVerified"), object: nil)
     }
 
     /// Stop the active session: record end time and transition to stopped state.
@@ -809,13 +824,13 @@ struct OnlineSessionDetailView: View {
             }
             session.balanceBefore = Double(balanceBefore) ?? 0
             session.balanceAfter = Double(balanceAfter) ?? 0
+            session.platform = selectedPlatform
         }
         session.exchangeRateToBase = selectedPlatform?.latestFXConversionRate ?? 1.0
         session.netProfitLoss = netPL
         session.netProfitLossBase = netPLBase
         session.handsCount = Int32(handsOverride) ?? 0
         session.notes = notes.isEmpty ? nil : notes
-        session.platform = selectedPlatform
         try? viewContext.save()
     }
 }

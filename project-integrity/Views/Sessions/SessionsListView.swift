@@ -48,6 +48,7 @@ struct SessionsListView: View {
     @State private var navigateToUnverifiedLive: LiveCash? = nil
     @State private var showFilterSheet = false
     @StateObject private var filterState = FilterState()
+    @State private var refreshID = UUID()
 
     var hasUnverifiedSession: Bool {
         !unverifiedOnlineSessions.isEmpty || !unverifiedLiveSessions.isEmpty
@@ -94,6 +95,7 @@ struct SessionsListView: View {
                 sessionList
             }
         }
+        .id(refreshID)
         .navigationTitle("Sessions")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
@@ -180,7 +182,14 @@ struct SessionsListView: View {
         .listStyle(.plain)
         .scrollContentBackground(.hidden)
         .background(Color.appBackground)
-        .refreshable { }
+        .refreshable {
+            await performRefresh()
+        }
+    }
+
+    func performRefresh() async {
+        viewContext.refreshAllObjects()
+        refreshID = UUID()
     }
 
     @ViewBuilder

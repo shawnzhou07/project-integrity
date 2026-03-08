@@ -18,6 +18,7 @@ struct PlatformsListView: View {
     @State private var externalWithdrawalPlatform: Platform? = nil
     @State private var showExternalDeposit = false
     @State private var showExternalWithdrawal = false
+    @State private var refreshID = UUID()
 
     var body: some View {
         ZStack {
@@ -47,8 +48,12 @@ struct PlatformsListView: View {
                 .listStyle(.plain)
                 .scrollContentBackground(.hidden)
                 .background(Color.appBackground)
+                .refreshable {
+                    await performRefresh()
+                }
             }
         }
+        .id(refreshID)
         .navigationTitle("Platforms")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
@@ -75,6 +80,10 @@ struct PlatformsListView: View {
             }
         }
         .onAppear { handleCoordinatorTriggers() }
+        .onReceive(NotificationCenter.default.publisher(for: Notification.Name("sessionVerified"))) { _ in
+            viewContext.refreshAllObjects()
+            refreshID = UUID()
+        }
         .onChange(of: coordinator.shouldOpenAddPlatform) { _, v in
             if v { showAddPlatform = true; coordinator.shouldOpenAddPlatform = false }
         }
@@ -94,6 +103,11 @@ struct PlatformsListView: View {
         } message: {
             Text(deleteAlertMessage)
         }
+    }
+
+    func performRefresh() async {
+        viewContext.refreshAllObjects()
+        refreshID = UUID()
     }
 
     func handleCoordinatorTriggers() {
