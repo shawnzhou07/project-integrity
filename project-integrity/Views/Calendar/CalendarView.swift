@@ -44,14 +44,22 @@ enum CalendarSessionItem: Identifiable {
     }
     var gameTypeBlinds: String {
         switch self {
-        case .online(let s): return s.displayBlinds.isEmpty ? (s.displayGameType ) : "\(s.displayGameType) \(s.displayBlinds)"
-        case .live(let s): return s.displayBlinds.isEmpty ? (s.displayGameType ) : "\(s.displayGameType) \(s.displayBlinds)"
+        case .online(let s): return s.displayBlinds.isEmpty ? GameTypePreviewDisplay.short(s.gameType) : "\(GameTypePreviewDisplay.short(s.gameType)) \(s.displayBlinds)"
+        case .live(let s): return s.displayBlinds.isEmpty ? GameTypePreviewDisplay.short(s.gameType) : "\(GameTypePreviewDisplay.short(s.gameType)) \(s.displayBlinds)"
         }
     }
     var currencyCode: String {
         switch self {
         case .online(let s): return s.platform?.displayCurrency ?? "CAD"
         case .live(let s): return s.currency ?? "CAD"
+        }
+    }
+
+    /// Platform name (online) or location name (live) for display in calendar day session rows.
+    var siteOrLocationName: String {
+        switch self {
+        case .online(let s): return s.platform?.displayName ?? "Online"
+        case .live(let s): return s.locationEntity?.displayName ?? s.location ?? "Live"
         }
     }
 }
@@ -641,12 +649,15 @@ struct CalendarView: View {
                 Text(item.gameTypeBlinds)
                     .font(.subheadline)
                     .foregroundColor(.white)
+                Text(item.siteOrLocationName)
+                    .font(.caption)
+                    .foregroundColor(grayDim)
                 Text(AppFormatter.duration(item.computedDuration))
                     .font(.caption)
                     .foregroundColor(grayDim)
             }
             Spacer()
-            Text(AppFormatter.currencySigned(item.netProfitLossBase, code: item.currencyCode))
+            Text(AppFormatter.currencySigned(item.netProfitLossBase, code: baseCurrency))
                 .font(.subheadline)
                 .fontWeight(.medium)
                 .foregroundColor(valueColor(item.netProfitLossBase))

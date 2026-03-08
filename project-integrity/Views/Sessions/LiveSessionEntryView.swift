@@ -53,6 +53,8 @@ struct LiveSessionEntryView: View {
     @State private var handsOverride = ""
     @State private var notes = ""
 
+    @State private var suggestedBlinds: [BlindSuggestion] = []
+
     @State private var showDiscardAlert = false
     @State private var showRequiredFieldsAlert = false
     @State private var showZeroDurationAlert = false
@@ -125,6 +127,10 @@ struct LiveSessionEntryView: View {
             .onAppear {
                 currency = baseCurrency
                 if let session = existingSession { loadFromExisting(session) }
+                updateSuggestedBlinds()
+            }
+            .onChange(of: selectedLocation) { _, _ in
+                updateSuggestedBlinds()
             }
             .sheet(isPresented: $showLocationPicker) {
                 LocationPickerSheet(
@@ -261,6 +267,19 @@ struct LiveSessionEntryView: View {
             .foregroundColor(.appPrimary)
             .listRowBackground(Color.appSurface)
             .onChange(of: gameType) { _, _ in autoSaveIfActive() }
+
+            if selectedLocation != nil {
+                SuggestedBlindsRowView(
+                    suggestions: suggestedBlinds,
+                    emptyMessage: "No previous sessions at this location"
+                ) { s in
+                    smallBlind = AppFormatter.blindValue(s.sb)
+                    bigBlind = AppFormatter.blindValue(s.bb)
+                    straddle = s.str > 0 ? AppFormatter.blindValue(s.str) : ""
+                    ante = s.ante > 0 ? AppFormatter.blindValue(s.ante) : ""
+                }
+                .id(selectedLocation?.id ?? UUID())
+            }
 
             HStack(spacing: 12) {
                 blindField(label: "SB", text: $smallBlind)
@@ -510,6 +529,11 @@ struct LiveSessionEntryView: View {
     }
 
     // MARK: - Actions
+
+    func updateSuggestedBlinds() {
+        guard let loc = selectedLocation else { suggestedBlinds = []; return }
+        suggestedBlinds = SuggestedBlindsHelper.suggestionsForLive(context: viewContext, location: loc)
+    }
 
     func prefillExchangeRate(for newCurrency: String) {
         guard newCurrency != baseCurrency else { return }

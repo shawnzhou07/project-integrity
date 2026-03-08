@@ -32,6 +32,7 @@ struct OnlineSessionFormView: View {
     @State private var showPlatformPicker = false
     @State private var showTimeAlert = false
     @State private var showZeroDurationAlert = false
+    @State private var suggestedBlinds: [BlindSuggestion] = []
 
     var breakTimeMinutes: Double { Double(breakTimeStr) ?? 0 }
 
@@ -88,10 +89,20 @@ struct OnlineSessionFormView: View {
             }
             prevStartTime = startTime
             prevEndTime = endTime
+            updateSuggestedBlinds()
+            applyPlatformDefaultTableSize()
         }
         .onChange(of: selectedPlatform) { _, newPlatform in
             if let p = newPlatform {
                 autoFillBalanceBefore(from: p)
+                applyPlatformDefaultTableSize()
+            }
+            updateSuggestedBlinds()
+        }
+        .onChange(of: showPlatformPicker) { _, isShowing in
+            if !isShowing {
+                updateSuggestedBlinds()
+                applyPlatformDefaultTableSize()
             }
         }
         .alert("Invalid Time Range", isPresented: $showTimeAlert) {
@@ -109,6 +120,24 @@ struct OnlineSessionFormView: View {
     func autoFillBalanceBefore(from platform: Platform) {
         let bal = platform.currentBalance
         balanceBefore = bal == 0 ? "" : String(format: "%.2f", bal)
+    }
+
+    func applyPlatformDefaultTableSize() {
+        guard let platform = selectedPlatform else { return }
+        viewContext.refresh(platform, mergeChanges: true)
+        let def = platform.defaultTableSize
+        tableSize = (def >= 2 && def <= 10) ? Int(def) : 6
+    }
+
+    func updateSuggestedBlinds() {
+        if selectedPlatform == nil {
+            print("[SuggestedBlinds] Online updateSuggestedBlinds — selectedPlatform is nil, clearing")
+            suggestedBlinds = []
+            return
+        }
+        guard let platform = selectedPlatform else { return }
+        print("[SuggestedBlinds] Online updateSuggestedBlinds — platformId: \(platform.id?.uuidString ?? "nil")")
+        suggestedBlinds = SuggestedBlindsHelper.suggestionsForOnline(context: viewContext, platform: platform)
     }
 
     var platformSection: some View {
@@ -149,6 +178,19 @@ struct OnlineSessionFormView: View {
             }
             .foregroundColor(.appPrimary)
             .listRowBackground(Color.appSurface)
+
+            if selectedPlatform != nil {
+                SuggestedBlindsRowView(
+                    suggestions: suggestedBlinds,
+                    emptyMessage: "No previous sessions on this platform"
+                ) { s in
+                    smallBlind = AppFormatter.blindValue(s.sb)
+                    bigBlind = AppFormatter.blindValue(s.bb)
+                    straddle = s.str > 0 ? AppFormatter.blindValue(s.str) : ""
+                    ante = s.ante > 0 ? AppFormatter.blindValue(s.ante) : ""
+                }
+                .id(selectedPlatform?.id ?? UUID())
+            }
 
             HStack(spacing: 12) {
                 blindField(label: "SB", text: $smallBlind)

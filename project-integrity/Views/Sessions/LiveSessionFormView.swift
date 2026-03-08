@@ -33,6 +33,7 @@ struct LiveSessionFormView: View {
     @State private var notes = ""
     @State private var showTimeAlert = false
     @State private var showZeroDurationAlert = false
+    @State private var suggestedBlinds: [BlindSuggestion] = []
 
     @FetchRequest(
         sortDescriptors: [NSSortDescriptor(keyPath: \Location.name, ascending: true)]
@@ -85,6 +86,13 @@ struct LiveSessionFormView: View {
             currency = baseCurrency
             prevStartTime = startTime
             prevEndTime = endTime
+            updateSuggestedBlinds()
+        }
+        .onChange(of: selectedLocation) { _, _ in
+            updateSuggestedBlinds()
+        }
+        .onChange(of: showLocationPicker) { _, isShowing in
+            if !isShowing { updateSuggestedBlinds() }
         }
         .alert("Invalid Time Range", isPresented: $showTimeAlert) {
             Button("OK", role: .cancel) {}
@@ -103,6 +111,17 @@ struct LiveSessionFormView: View {
             )
             .environment(\.managedObjectContext, viewContext)
         }
+    }
+
+    func updateSuggestedBlinds() {
+        if selectedLocation == nil {
+            print("[SuggestedBlinds] Live updateSuggestedBlinds — selectedLocation is nil, clearing")
+            suggestedBlinds = []
+            return
+        }
+        guard let loc = selectedLocation else { return }
+        print("[SuggestedBlinds] Live updateSuggestedBlinds — locationId: \(loc.id?.uuidString ?? "nil")")
+        suggestedBlinds = SuggestedBlindsHelper.suggestionsForLive(context: viewContext, location: loc)
     }
 
     var locationSection: some View {
@@ -158,6 +177,19 @@ struct LiveSessionFormView: View {
             }
             .foregroundColor(.appPrimary)
             .listRowBackground(Color.appSurface)
+
+            if selectedLocation != nil {
+                SuggestedBlindsRowView(
+                    suggestions: suggestedBlinds,
+                    emptyMessage: "No previous sessions at this location"
+                ) { s in
+                    smallBlind = AppFormatter.blindValue(s.sb)
+                    bigBlind = AppFormatter.blindValue(s.bb)
+                    straddle = s.str > 0 ? AppFormatter.blindValue(s.str) : ""
+                    ante = s.ante > 0 ? AppFormatter.blindValue(s.ante) : ""
+                }
+                .id(selectedLocation?.id ?? UUID())
+            }
 
             HStack(spacing: 12) {
                 blindField(label: "SB", text: $smallBlind)

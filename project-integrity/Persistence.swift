@@ -14,6 +14,7 @@ struct PersistenceController {
         platform.name = "PokerStars Ontario"
         platform.currency = "CAD"
         platform.createdAt = Date()
+        platform.defaultTableSize = 6
 
         // Sample online session
         let online = OnlineCash(context: ctx)

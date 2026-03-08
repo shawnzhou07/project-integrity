@@ -140,3 +140,21 @@ enum AppFormatter {
         String(format: "%.1f", value)
     }
 }
+
+// MARK: - Game type short labels for session preview rows only (list, calendar, platform detail)
+
+enum GameTypePreviewDisplay {
+    /// Returns abbreviated game type for compact session rows. Use only in preview/list contexts; keep full name in detail views.
+    static func short(_ full: String?) -> String {
+        guard let s = full, !s.isEmpty else { return "—" }
+        switch s {
+        case "No Limit Hold'em": return "NLH"
+        case "Pot Limit Omaha": return "PLO"
+        case "Omaha 5", "Pot Limit Omaha 5": return "PLO5"
+        case "Omaha Hi-Lo", "Pot Limit Omaha Hi-Lo": return "PLO8"
+        case "7-Card Stud", "7 Card Stud": return "STUD"
+        case "Mixed Games": return "MIXED"
+        default: return s
+        }
+    }
+}

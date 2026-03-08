@@ -50,6 +50,16 @@ struct PlatformDetailView: View {
         .id(refreshID)
         .navigationTitle(platform.displayName)
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .navigationBarTrailing) {
+                NavigationLink {
+                    PlatformSettingsView(platform: platform)
+                } label: {
+                    Image(systemName: "gearshape")
+                        .foregroundColor(.appGold)
+                }
+            }
+        }
         .sheet(isPresented: $showDeposit) {
             DepositFormView(platform: platform)
         }
@@ -217,7 +227,7 @@ struct PlatformDetailView: View {
                                 Text(AppFormatter.shortDate(session.sessionDate))
                                     .font(.caption)
                                     .foregroundColor(.appSecondary)
-                                Text(session.displayBlinds.isEmpty ? session.displayGameType : "\(session.displayGameType) \(session.displayBlinds)")
+                                Text(session.displayBlinds.isEmpty ? GameTypePreviewDisplay.short(session.gameType) : "\(GameTypePreviewDisplay.short(session.gameType)) \(session.displayBlinds)")
                                     .font(.subheadline)
                                     .foregroundColor(.appPrimary)
                             }

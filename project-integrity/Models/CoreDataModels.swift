@@ -10,6 +10,7 @@ public class Platform: NSManagedObject {
     @NSManaged public var name: String?
     @NSManaged public var currency: String?
     @NSManaged public var createdAt: Date?
+    @NSManaged public var defaultTableSize: Int16
     @NSManaged public var deposits: NSSet?
     @NSManaged public var withdrawals: NSSet?
     @NSManaged public var onlineSessions: NSSet?

@@ -19,6 +19,8 @@ struct PlatformsListView: View {
     @State private var showExternalDeposit = false
     @State private var showExternalWithdrawal = false
     @State private var refreshID = UUID()
+    @State private var showPlatformSettingsSheet = false
+    @State private var platformForSettings: Platform? = nil
 
     var body: some View {
         ZStack {
@@ -35,6 +37,14 @@ struct PlatformsListView: View {
                         }
                         .listRowBackground(Color.appSurface)
                         .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
+                        .contextMenu {
+                            Button {
+                                platformForSettings = platform
+                                showPlatformSettingsSheet = true
+                            } label: {
+                                Label("Settings", systemImage: "gearshape")
+                            }
+                        }
                         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                             Button(role: .destructive) {
                                 platformToDelete = platform
@@ -77,6 +87,11 @@ struct PlatformsListView: View {
         .sheet(isPresented: $showExternalWithdrawal) {
             if let p = externalWithdrawalPlatform {
                 WithdrawalFormView(platform: p)
+            }
+        }
+        .sheet(isPresented: $showPlatformSettingsSheet) {
+            if let platform = platformForSettings {
+                PlatformSettingsView(platform: platform)
             }
         }
         .onAppear { handleCoordinatorTriggers() }

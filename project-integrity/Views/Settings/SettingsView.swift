@@ -673,6 +673,7 @@ struct SettingsView: View {
             platform.name = p.name
             platform.currency = p.currency
             platform.createdAt = p.createdAt
+            platform.defaultTableSize = 6
             platformByName[p.name] = platform
             addedPlatforms += 1
         }

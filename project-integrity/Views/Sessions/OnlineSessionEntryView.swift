@@ -36,6 +36,8 @@ struct OnlineSessionEntryView: View {
     @State private var handsOverride = ""
     @State private var notes = ""
 
+    @State private var suggestedBlinds: [BlindSuggestion] = []
+
     @State private var showDiscardAlert = false
     @State private var showRequiredFieldsAlert = false
     @State private var showPlatformPicker = false
@@ -171,14 +173,30 @@ struct OnlineSessionEntryView: View {
                 } else if selectedPlatform == nil, let first = platforms.first {
                     selectedPlatform = first
                     autoFillBalanceBefore(from: first)
+                    applyPlatformDefaultTableSize()
                 }
+                updateSuggestedBlinds()
             }
             .onChange(of: selectedPlatform) { _, newPlatform in
                 if let p = newPlatform, entryState == .preStart {
                     autoFillBalanceBefore(from: p)
+                    applyPlatformDefaultTableSize()
                 }
+                updateSuggestedBlinds()
             }
             .onReceive(timer) { t in if entryState == .active { tick = t } }
+    }
+
+    func updateSuggestedBlinds() {
+        guard let platform = selectedPlatform else { suggestedBlinds = []; return }
+        suggestedBlinds = SuggestedBlindsHelper.suggestionsForOnline(context: viewContext, platform: platform)
+    }
+
+    func applyPlatformDefaultTableSize() {
+        guard let platform = selectedPlatform else { return }
+        viewContext.refresh(platform, mergeChanges: true)
+        let def = platform.defaultTableSize
+        tableSize = (def >= 2 && def <= 10) ? Int(def) : 6
     }
 
     func autoFillBalanceBefore(from platform: Platform) {
@@ -328,6 +346,19 @@ struct OnlineSessionEntryView: View {
             .foregroundColor(.appPrimary)
             .listRowBackground(Color.appSurface)
             .onChange(of: gameType) { _, _ in autoSaveIfActive() }
+
+            if selectedPlatform != nil {
+                SuggestedBlindsRowView(
+                    suggestions: suggestedBlinds,
+                    emptyMessage: "No previous sessions on this platform"
+                ) { s in
+                    smallBlind = AppFormatter.blindValue(s.sb)
+                    bigBlind = AppFormatter.blindValue(s.bb)
+                    straddle = s.str > 0 ? AppFormatter.blindValue(s.str) : ""
+                    ante = s.ante > 0 ? AppFormatter.blindValue(s.ante) : ""
+                }
+                .id(selectedPlatform?.id ?? UUID())
+            }
 
             HStack(spacing: 12) {
                 blindField(label: "SB", text: $smallBlind)

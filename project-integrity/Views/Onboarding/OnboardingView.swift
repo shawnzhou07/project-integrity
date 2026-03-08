@@ -198,6 +198,7 @@ struct OnboardingView: View {
             platform.name = name
             platform.currency = curr
             platform.createdAt = Date()
+            platform.defaultTableSize = 6
         }
         do {
             try viewContext.save()
