@@ -145,6 +145,8 @@ struct ChartsView: View {
         for (idx, s) in sessions.enumerated() {
             cumHours += s.durationHours
             cumHands += s.hands
+            cumNet += s.netBase
+            cumBB += s.bbWon
 
             let xVal: Double
             switch xAxis {
@@ -156,15 +158,13 @@ struct ChartsView: View {
             let yVal: Double
             switch yAxis {
             case .netResult:
-                cumNet += s.netBase
                 yVal = cumNet
             case .hourlyRate:
-                yVal = s.netBase / max(s.durationHours, 0.01)
+                yVal = cumHours > 0 ? cumNet / cumHours : 0
             case .bbWon:
-                cumBB += s.bbWon
                 yVal = cumBB
             case .bbPer100:
-                yVal = s.bbPer100
+                yVal = cumHands > 0 ? (cumBB / Double(cumHands)) * 100.0 : 0
             }
 
             points.append(ChartPointData(
