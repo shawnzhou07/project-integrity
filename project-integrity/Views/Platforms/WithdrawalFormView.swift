@@ -6,28 +6,101 @@ struct WithdrawalFormView: View {
     @Environment(\.managedObjectContext) private var viewContext
     @Environment(\.dismiss) private var dismiss
     @AppStorage("baseCurrency") private var baseCurrency = "CAD"
+    @AppStorage("exchangeRateInputMode") private var exchangeRateInputMode = "direct"
+    @AppStorage("defaultRateUSDToBase") private var defaultRateUSDToBase = 1.36
+    @AppStorage("defaultRateEURToBase") private var defaultRateEURToBase = 1.47
 
     @State private var amountRequested = ""
-    @State private var dateRequested = Date()
+    @State private var date = Date()
     @State private var method = "E-Transfer"
     @State private var notes = ""
-    @State private var alreadyReceived = false
-    @State private var amountReceived = ""
-    @State private var settlementDate = Date()
+    @State private var showConfirmation = false
 
-    @State private var showNegativeBalanceAlert = false
-    @State private var showPendingConfirmation = false
-    @State private var showSettledConfirmation = false
-    @State private var savedAmount: Double = 0
-    @State private var savedCurrency: String = ""
+    @State private var alreadyReceived = false
+    @State private var isForeignExchange = false
+    @State private var amountReceivedText = ""
+    @State private var effectiveRateStr = ""
+    @State private var receivedDate = Date()
+
+    var isSameCurrency: Bool { platform.displayCurrency == baseCurrency }
+
+    var defaultRate: Double {
+        switch platform.displayCurrency {
+        case "USD": return defaultRateUSDToBase
+        case "EUR": return defaultRateEURToBase
+        default: return 1.0
+        }
+    }
+
+    // Mode A: base amount = requested × rate
+    var computedBaseModeA: Double {
+        let req = Double(amountRequested) ?? 0
+        let rate = Double(effectiveRateStr) ?? 0
+        guard req > 0, rate > 0 else { return 0 }
+        return req * rate
+    }
+
+    // Mode B: rate = base / requested
+    var computedRateModeB: Double {
+        let req = Double(amountRequested) ?? 0
+        let base = Double(amountReceivedText) ?? 0
+        guard req > 0, base > 0 else { return 0 }
+        return base / req
+    }
+
+    var finalEffectiveRate: Double {
+        guard alreadyReceived && isForeignExchange && !isSameCurrency else { return 1.0 }
+        if exchangeRateInputMode == "direct" {
+            return Double(effectiveRateStr) ?? 1.0
+        } else {
+            return computedRateModeB > 0 ? computedRateModeB : 1.0
+        }
+    }
+
+    // Base currency amount to store as amountReceived
+    var finalAmountReceived: Double {
+        guard alreadyReceived else { return 0 }
+        if isForeignExchange && !isSameCurrency {
+            if exchangeRateInputMode == "direct" {
+                return computedBaseModeA
+            } else {
+                return Double(amountReceivedText) ?? 0
+            }
+        }
+        return Double(amountReceivedText) ?? 0
+    }
+
+    // Processing fee: requested minus received (platform currency), FX-OFF only
+    var processingFeeDisplay: String {
+        guard alreadyReceived, !isForeignExchange || isSameCurrency else { return "—" }
+        let req = Double(amountRequested) ?? 0
+        let rec = Double(amountReceivedText) ?? 0
+        guard req > 0, rec > 0 else { return "—" }
+        let fee = req - rec
+        return String(format: "%.2f", fee)
+    }
+
+    // Formatted string for the read-only Effective Rate display row
+    var effectiveRateDisplayValue: String {
+        if exchangeRateInputMode == "direct" {
+            let rate = Double(effectiveRateStr) ?? 0
+            return rate > 0 ? String(format: "%.4f", rate) : "—"
+        } else {
+            return computedRateModeB > 0 ? String(format: "%.4f", computedRateModeB) : "—"
+        }
+    }
 
     var isValid: Bool {
-        let requested = Double(amountRequested) ?? 0
-        guard requested > 0 else { return false }
-        if alreadyReceived {
-            return (Double(amountReceived) ?? 0) > 0
+        guard (Double(amountRequested) ?? 0) > 0 else { return false }
+        guard alreadyReceived else { return true }
+        if isForeignExchange && !isSameCurrency {
+            if exchangeRateInputMode == "direct" {
+                return (Double(effectiveRateStr) ?? 0) > 0
+            } else {
+                return (Double(amountReceivedText) ?? 0) > 0
+            }
         }
-        return true
+        return (Double(amountReceivedText) ?? 0) > 0
     }
 
     var body: some View {
@@ -35,78 +108,9 @@ struct WithdrawalFormView: View {
             ZStack {
                 Color.appBackground.ignoresSafeArea()
                 Form {
-                    Section {
-                        HStack {
-                            Text("Amount Requested (\(platform.displayCurrency))")
-                                .foregroundColor(.appPrimary)
-                            Spacer()
-                            CurrencyInputField(text: $amountRequested, width: 120)
-                        }
-                        .listRowBackground(Color.appSurface)
-
-                        DatePicker("Date Requested", selection: $dateRequested, displayedComponents: .date)
-                            .foregroundColor(.appPrimary)
-                            .tint(.appGold)
-                            .listRowBackground(Color.appSurface)
-
-                        Picker("Method", selection: $method) {
-                            ForEach(withdrawalMethods, id: \.self) { Text($0) }
-                        }
-                        .foregroundColor(.appPrimary)
-                        .tint(.appGold)
-                        .listRowBackground(Color.appSurface)
-
-                        Toggle(isOn: $alreadyReceived) {
-                            Text("Already Received")
-                                .foregroundColor(.appPrimary)
-                        }
-                        .tint(.appGold)
-                        .listRowBackground(Color.appSurface)
-
-                        if alreadyReceived {
-                            HStack {
-                                Text("Amount Received (\(baseCurrency))")
-                                    .foregroundColor(.appPrimary)
-                                Spacer()
-                                CurrencyInputField(text: $amountReceived, width: 120)
-                            }
-                            .listRowBackground(Color.appSurface)
-                            .transition(.opacity.combined(with: .move(edge: .top)))
-
-                            DatePicker("Settlement Date", selection: $settlementDate, displayedComponents: .date)
-                                .foregroundColor(.appPrimary)
-                                .tint(.appGold)
-                                .listRowBackground(Color.appSurface)
-                                .transition(.opacity.combined(with: .move(edge: .top)))
-                        }
-
-                        TextField("Notes (optional)", text: $notes, axis: .vertical)
-                            .lineLimit(3...6)
-                            .foregroundColor(.appPrimary)
-                            .listRowBackground(Color.appSurface)
-                    } header: {
-                        Text("Withdrawal").foregroundColor(.appGold).textCase(nil)
-                    }
-                    .animation(.easeInOut(duration: 0.25), value: alreadyReceived)
-
-                    Section {
-                        Button {
-                            let requested = Double(amountRequested) ?? 0
-                            if requested > 0 && platform.currentBalance - requested < 0 {
-                                showNegativeBalanceAlert = true
-                            } else {
-                                performSave()
-                            }
-                        } label: {
-                            Text("Save Withdrawal")
-                                .font(.headline)
-                                .foregroundColor(isValid ? .black : .appSecondary)
-                                .frame(maxWidth: .infinity)
-                                .padding(.vertical, 4)
-                        }
-                        .disabled(!isValid)
-                        .listRowBackground(isValid ? Color.appGold : Color.appSurface2)
-                    }
+                    amountsSection
+                    detailsSection
+                    saveSection
                 }
                 .scrollContentBackground(.hidden)
                 .background(Color.appBackground)
@@ -119,21 +123,148 @@ struct WithdrawalFormView: View {
                 }
             }
         }
-        .alert("Insufficient Balance", isPresented: $showNegativeBalanceAlert) {
-            Button("OK", role: .cancel) {}
+        .onAppear {
+            isForeignExchange = !isSameCurrency
+            if !isSameCurrency {
+                effectiveRateStr = String(format: "%.4f", defaultRate)
+            }
+        }
+        .alert("Withdrawal Recorded", isPresented: $showConfirmation) {
+            Button("OK") { dismiss() }
         } message: {
             let requested = Double(amountRequested) ?? 0
-            Text("This withdrawal of \(AppFormatter.currency(requested, code: platform.displayCurrency)) exceeds the current platform balance of \(AppFormatter.currency(platform.currentBalance, code: platform.displayCurrency)).")
+            let statusText = alreadyReceived ? "received" : "pending"
+            Text("Withdrawal of \(AppFormatter.currency(requested, code: platform.displayCurrency)) recorded as \(statusText).")
         }
-        .alert("Withdrawal Recorded", isPresented: $showPendingConfirmation) {
-            Button("OK") { dismiss() }
-        } message: {
-            Text("Withdrawal of \(AppFormatter.currency(savedAmount, code: savedCurrency)) recorded as pending. Mark it as received when funds arrive.")
+    }
+
+    var amountsSection: some View {
+        Section {
+            // Amount Requested — always visible
+            HStack {
+                Text("Amount Requested (\(platform.displayCurrency))").foregroundColor(.appPrimary)
+                Spacer()
+                CurrencyInputField(text: $amountRequested, width: 120)
+            }
+            .listRowBackground(Color.appSurface)
+
+            Toggle(isOn: $alreadyReceived.animation(.easeInOut)) {
+                Text("Already Received").foregroundColor(.appPrimary)
+            }
+            .tint(.appGold)
+            .listRowBackground(Color.appSurface)
+
+            if alreadyReceived {
+                if !isSameCurrency {
+                    Toggle(isOn: $isForeignExchange.animation(.easeInOut)) {
+                        Text("Foreign Exchange").foregroundColor(.appPrimary)
+                    }
+                    .tint(.appGold)
+                    .listRowBackground(Color.appSurface)
+                }
+
+                if isForeignExchange && !isSameCurrency {
+                    if exchangeRateInputMode == "direct" {
+                        // Mode A: user enters rate
+                        HStack {
+                            Text("Cash-Out Rate").foregroundColor(.appPrimary)
+                            Spacer()
+                            CurrencyInputField(text: $effectiveRateStr, width: 90, maxDecimalPlaces: 4, textColor: .appGold)
+                            Text("\(baseCurrency)/\(platform.displayCurrency)")
+                                .font(.caption).foregroundColor(.appSecondary)
+                        }
+                        .listRowBackground(Color.appSurface)
+
+                        HStack {
+                            Text("Amount Received (\(baseCurrency))").foregroundColor(.appSecondary)
+                            Spacer()
+                            Text(computedBaseModeA > 0
+                                 ? AppFormatter.currency(computedBaseModeA, code: baseCurrency)
+                                 : "—")
+                                .foregroundColor(.appNeutral)
+                        }
+                        .listRowBackground(Color.appSurface)
+                    } else {
+                        // Mode B: user enters base amount
+                        HStack {
+                            Text("Amount Received (\(baseCurrency))").foregroundColor(.appPrimary)
+                            Spacer()
+                            CurrencyInputField(text: $amountReceivedText, width: 120)
+                        }
+                        .listRowBackground(Color.appSurface)
+                    }
+                } else {
+                    // FX OFF or same currency: platform currency amount
+                    HStack {
+                        Text("Amount Received (\(platform.displayCurrency))").foregroundColor(.appPrimary)
+                        Spacer()
+                        CurrencyInputField(text: $amountReceivedText, width: 120)
+                    }
+                    .listRowBackground(Color.appSurface)
+                }
+
+                // Shared row: Effective Rate (FX ON) or Processing Fee (FX OFF) — same slot, no layout shift
+                HStack {
+                    Text(isForeignExchange && !isSameCurrency
+                         ? "Effective Rate (\(baseCurrency)/\(platform.displayCurrency))"
+                         : "Processing Fee (\(platform.displayCurrency))")
+                        .foregroundColor(.appSecondary)
+                    Spacer()
+                    Text(isForeignExchange && !isSameCurrency
+                         ? effectiveRateDisplayValue
+                         : processingFeeDisplay)
+                        .foregroundColor(.appNeutral)
+                }
+                .listRowBackground(Color.appSurface)
+            }
+        } header: {
+            Text("Amounts").foregroundColor(.appGold).textCase(nil)
         }
-        .alert("Withdrawal Recorded", isPresented: $showSettledConfirmation) {
-            Button("OK") { dismiss() }
-        } message: {
-            Text("Withdrawal recorded as received.")
+    }
+
+    var detailsSection: some View {
+        Section {
+            Picker("Method", selection: $method) {
+                ForEach(withdrawalMethods, id: \.self) { Text($0) }
+            }
+            .foregroundColor(.appPrimary)
+            .tint(.appGold)
+            .listRowBackground(Color.appSurface)
+
+            DatePicker("Date Requested", selection: $date, displayedComponents: .date)
+                .foregroundColor(.appPrimary)
+                .tint(.appGold)
+                .listRowBackground(Color.appSurface)
+
+            if alreadyReceived {
+                DatePicker("Date Received", selection: $receivedDate, displayedComponents: .date)
+                    .foregroundColor(.appPrimary)
+                    .tint(.appGold)
+                    .listRowBackground(Color.appSurface)
+            }
+
+            TextField("Notes (optional)", text: $notes, axis: .vertical)
+                .lineLimit(3...6)
+                .foregroundColor(.appPrimary)
+                .listRowBackground(Color.appSurface)
+        } header: {
+            Text("Details").foregroundColor(.appGold).textCase(nil)
+        }
+    }
+
+    var saveSection: some View {
+        Section {
+            Button {
+                performSave()
+            } label: {
+                Text("Save Withdrawal")
+                    .font(.headline)
+                    .foregroundColor(isValid ? .black : .appSecondary)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 4)
+            }
+            .disabled(!isValid)
+            .listRowBackground(isValid ? Color.appGold : Color.appSurface2)
         }
     }
 
@@ -143,35 +274,34 @@ struct WithdrawalFormView: View {
 
         let withdrawal = Withdrawal(context: viewContext)
         withdrawal.id = UUID()
-        withdrawal.date = dateRequested
+        withdrawal.date = date
         withdrawal.amountRequested = requested
         withdrawal.method = method
         withdrawal.notes = notes.isEmpty ? nil : notes
-        withdrawal.isForeignExchange = false
-        withdrawal.effectiveExchangeRate = 0
-        withdrawal.processingFee = 0
         withdrawal.platform = platform
+        withdrawal.processingFee = 0
+        withdrawal.isForeignExchange = alreadyReceived && isForeignExchange && !isSameCurrency
+        withdrawal.effectiveExchangeRate = finalEffectiveRate
 
         if alreadyReceived {
-            let received = Double(amountReceived) ?? 0
-            withdrawal.amountReceived = received
-            withdrawal.settlementDate = settlementDate
-            withdrawal.isPending = false
+            withdrawal.withdrawalStatus = "received"
+            withdrawal.amountReceived = finalAmountReceived
+            withdrawal.receivedDate = receivedDate
         } else {
+            withdrawal.withdrawalStatus = "pending"
             withdrawal.amountReceived = 0
-            withdrawal.settlementDate = nil
-            withdrawal.isPending = true
+            withdrawal.receivedDate = nil
         }
+
+        print("DEBUG: withdrawal.platform set correctly: \(withdrawal.platform == platform)")
 
         do {
             try viewContext.save()
-            savedAmount = requested
-            savedCurrency = platform.displayCurrency
-            if alreadyReceived {
-                showSettledConfirmation = true
-            } else {
-                showPendingConfirmation = true
-            }
+            viewContext.refresh(platform, mergeChanges: true)
+            viewContext.refreshAllObjects()
+            NotificationCenter.default.post(name: Notification.Name("platformDataChanged"), object: nil)
+            NotificationCenter.default.post(name: Notification.Name("sessionVerified"), object: nil)
+            showConfirmation = true
         } catch {
             print("Save withdrawal error: \(error)")
         }

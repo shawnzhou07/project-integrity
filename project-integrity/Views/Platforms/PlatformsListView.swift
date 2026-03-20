@@ -94,8 +94,15 @@ struct PlatformsListView: View {
                 PlatformSettingsView(platform: platform)
             }
         }
-        .onAppear { handleCoordinatorTriggers() }
+        .onAppear {
+            viewContext.refreshAllObjects()
+            handleCoordinatorTriggers()
+        }
         .onReceive(NotificationCenter.default.publisher(for: Notification.Name("sessionVerified"))) { _ in
+            viewContext.refreshAllObjects()
+            refreshID = UUID()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: Notification.Name("platformDataChanged"))) { _ in
             viewContext.refreshAllObjects()
             refreshID = UUID()
         }

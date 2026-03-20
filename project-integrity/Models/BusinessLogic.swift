@@ -46,15 +46,38 @@ extension Platform {
         guard !deps.isEmpty || !withs.isEmpty || !adjs.isEmpty else { return 0 }
 
         if let anchor = anchorSession, let anchorEnd = anchor.endTime {
+            // Diagnostic: log all withdrawals to confirm membership and status
+            print("[currentBalance] Platform: \(displayName) | anchorEnd: \(anchorEnd) | balanceAfter: \(anchor.balanceAfter)")
+            for w in withs {
+                let afterAnchor = (w.date ?? .distantPast) > anchorEnd
+                print("[currentBalance]   withdrawal: requested=\(w.amountRequested) \(platformCurr), received=\(w.amountReceived), status=\(w.withdrawalStatus ?? "nil"), date=\(String(describing: w.date)), afterAnchor=\(afterAnchor)")
+            }
+
             var balance = anchor.balanceAfter
-            balance += deps.filter { ($0.date ?? .distantPast) > anchorEnd }.reduce(0) { $0 + $1.amountReceived }
-            balance -= withs.filter { ($0.date ?? .distantPast) > anchorEnd }.reduce(0) { $0 + $1.amountRequested }
-            balance += adjs.filter { ($0.date ?? .distantPast) > anchorEnd }.reduce(0) { $0 + Platform.effectiveAmount(for: $1, platformCurrency: platformCurr) }
+            let postAnchorDeposits = deps.filter { ($0.date ?? .distantPast) > anchorEnd }.reduce(0) { $0 + $1.amountReceived }
+            // FIX: deduct ALL pending/received withdrawals regardless of date relative to anchor.
+            // The anchor's balanceAfter reflects the actual platform balance at verification time, but
+            // withdrawals entered after that verification (or backdated before it) are NOT baked into
+            // balanceAfter. The date guard was silently dropping them. Both paths must be symmetric.
+            let allWithdrawals = withs.filter {
+                let status = $0.withdrawalStatus ?? "received"
+                return status == "pending" || status == "received"
+            }.reduce(0) { $0 + $1.amountRequested }
+            let postAnchorAdjs = adjs.filter { ($0.date ?? .distantPast) > anchorEnd }.reduce(0) { $0 + Platform.effectiveAmount(for: $1, platformCurrency: platformCurr) }
+
+            balance += postAnchorDeposits
+            balance -= allWithdrawals
+            balance += postAnchorAdjs
+
+            print("[currentBalance]   +postAnchorDeposits=\(postAnchorDeposits), -allWithdrawals=\(allWithdrawals), +postAnchorAdjs=\(postAnchorAdjs), final=\(balance)")
             return balance
         }
 
         let totalDeposits = deps.reduce(0) { $0 + $1.amountReceived }
-        let totalWithdrawals = withs.reduce(0) { $0 + $1.amountRequested }
+        let totalWithdrawals = withs.filter {
+            let status = $0.withdrawalStatus ?? "received"
+            return status == "pending" || status == "received"
+        }.reduce(0) { $0 + $1.amountRequested }
         let totalAdjustments = adjs.reduce(0) { $0 + Platform.effectiveAmount(for: $1, platformCurrency: platformCurr) }
         return totalDeposits - totalWithdrawals + totalAdjustments
     }
@@ -75,13 +98,9 @@ extension Platform {
         depositsArray.reduce(0) { $0 + $1.amountSent }
     }
 
-    // amountReceived on withdrawals is always in base currency (CAD). Only settled withdrawals.
+    // amountReceived on withdrawals is always in base currency (CAD).
     var totalWithdrawn: Double {
-        withdrawalsArray.filter { !$0.isPending }.reduce(0) { $0 + $1.amountReceived }
-    }
-
-    var pendingWithdrawalsCount: Int {
-        withdrawalsArray.filter { $0.isPending }.count
+        withdrawalsArray.reduce(0) { $0 + $1.amountReceived }
     }
 
     var totalAdjustments: Double {
@@ -89,8 +108,6 @@ extension Platform {
     }
 
     // Net result in base currency using weighted average deposit rate.
-    // For pending withdrawals: use amountRequested × weightedAvgDepositRate as estimate.
-    // For settled: use actual amountReceived.
     // Formula: totalWithdrawalsReceivedBase + (currentBalance × weightedAvgDepositRate) − totalDepositsSentBase
     var netResult: Double {
         guard !depositsArray.isEmpty || !withdrawalsArray.isEmpty else { return 0 }
@@ -110,15 +127,18 @@ extension Platform {
             weightedAvgDepositRate = totalDepositsSentBase / totalDepositsReceivedPlatformCurrency
         }
 
-        let totalWithdrawalsReceivedBase: Double = withdrawalsArray.reduce(0) { sum, w in
-            if w.isPending {
-                return sum + (w.amountRequested * weightedAvgDepositRate)
+        let withdrawalsContributionBase = withdrawalsArray.reduce(0.0) { acc, w in
+            let status = w.withdrawalStatus ?? "received"
+            if status == "received" {
+                return acc + w.amountReceived
+            } else if w.isForeignExchange && w.effectiveExchangeRate > 0 {
+                return acc + (w.amountRequested * w.effectiveExchangeRate)
             } else {
-                return sum + w.amountReceived
+                return acc + (w.amountRequested * weightedAvgDepositRate)
             }
         }
 
-        return totalWithdrawalsReceivedBase + (currentBalance * weightedAvgDepositRate) - totalDepositsSentBase
+        return withdrawalsContributionBase + (currentBalance * weightedAvgDepositRate) - totalDepositsSentBase
     }
 
     // Net result in platform currency.

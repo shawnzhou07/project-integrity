@@ -12,7 +12,8 @@ struct PlatformDetailView: View {
     @State private var showWithdrawal = false
     @State private var showAdjustment = false
     @State private var showDeleteAlert = false
-    @State private var showWithdrawalDetail: Withdrawal? = nil
+    @State private var selectedDeposit: Deposit? = nil
+    @State private var selectedWithdrawal: Withdrawal? = nil
     @State private var refreshID = UUID()
     @Environment(\.dismiss) private var dismiss
 
@@ -37,7 +38,7 @@ struct PlatformDetailView: View {
                     actionButtons
                     sessionsSection
                     depositsSection
-                    withdrawalsSection
+                    WithdrawalsSectionView(platform: platform, baseCurrency: baseCurrency, selectedWithdrawal: $selectedWithdrawal)
                     adjustmentsSection
                     dangerZone
                 }
@@ -60,17 +61,47 @@ struct PlatformDetailView: View {
                 }
             }
         }
-        .sheet(isPresented: $showDeposit) {
+        .sheet(isPresented: $showDeposit, onDismiss: {
+            viewContext.refreshAllObjects()
+            refreshID = UUID()
+        }) {
             DepositFormView(platform: platform)
         }
-        .sheet(isPresented: $showWithdrawal) {
+        .sheet(isPresented: $showWithdrawal, onDismiss: {
+            viewContext.refreshAllObjects()
+            refreshID = UUID()
+        }) {
             WithdrawalFormView(platform: platform)
         }
-        .sheet(isPresented: $showAdjustment) {
+        .sheet(isPresented: $showAdjustment, onDismiss: {
+            viewContext.refreshAllObjects()
+            refreshID = UUID()
+        }) {
             AddAdjustmentView(initialPlatform: platform)
                 .environmentObject(coordinator)
         }
+        .sheet(item: $selectedDeposit, onDismiss: {
+            viewContext.refreshAllObjects()
+            refreshID = UUID()
+        }) { d in
+            DepositDetailSheet(deposit: d)
+                .environment(\.managedObjectContext, viewContext)
+        }
+        .sheet(item: $selectedWithdrawal, onDismiss: {
+            viewContext.refreshAllObjects()
+            refreshID = UUID()
+        }) { w in
+            WithdrawalDetailSheet(withdrawal: w, baseCurrency: baseCurrency)
+                .environment(\.managedObjectContext, viewContext)
+        }
+        .onAppear {
+            viewContext.refreshAllObjects()
+        }
         .onReceive(NotificationCenter.default.publisher(for: Notification.Name("sessionVerified"))) { _ in
+            viewContext.refreshAllObjects()
+            refreshID = UUID()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: Notification.Name("platformDataChanged"))) { _ in
             viewContext.refreshAllObjects()
             refreshID = UUID()
         }
@@ -99,11 +130,6 @@ struct PlatformDetailView: View {
                         .font(.title3)
                         .fontWeight(.bold)
                         .foregroundColor(platform.netResult.profitColor)
-                    if platform.pendingWithdrawalsCount > 0 {
-                        Text("Includes estimate for \(platform.pendingWithdrawalsCount) pending withdrawal(s)")
-                            .font(.system(size: 12))
-                            .foregroundColor(Color(hex: "#FF9500"))
-                    }
                     if platform.displayCurrency != baseCurrency {
                         Text(AppFormatter.currencySigned(platform.netResultInPlatformCurrency, code: platform.displayCurrency))
                             .font(.caption)
@@ -251,7 +277,7 @@ struct PlatformDetailView: View {
         }
     }
 
-    // MARK: - Deposits Section (no delete)
+    // MARK: - Deposits Section
 
     var depositsSection: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -269,45 +295,14 @@ struct PlatformDetailView: View {
                     .cornerRadius(8)
             } else {
                 ForEach(platform.depositsArray.reversed()) { deposit in
-                    DepositRowView(deposit: deposit, platformCurrency: platform.displayCurrency, baseCurrency: baseCurrency)
-                }
-            }
-        }
-    }
-
-    // MARK: - Withdrawals Section (no delete)
-
-    var withdrawalsSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("Withdrawals")
-                .font(.headline)
-                .foregroundColor(.appGold)
-
-            if platform.withdrawalsArray.isEmpty {
-                Text("No withdrawals recorded.")
-                    .font(.caption)
-                    .foregroundColor(.appSecondary)
-                    .padding()
-                    .frame(maxWidth: .infinity)
-                    .background(Color.appSurface)
-                    .cornerRadius(8)
-            } else {
-                ForEach(platform.withdrawalsArray.reversed()) { withdrawal in
                     Button {
-                        if withdrawal.isPending {
-                            showWithdrawalDetail = withdrawal
-                        }
+                        selectedDeposit = deposit
                     } label: {
-                        WithdrawalRowView(withdrawal: withdrawal, platformCurrency: platform.displayCurrency, baseCurrency: baseCurrency)
+                        DepositRowView(deposit: deposit, platformCurrency: platform.displayCurrency, baseCurrency: baseCurrency)
                     }
                     .buttonStyle(.plain)
-                    .disabled(!withdrawal.isPending)
                 }
             }
-        }
-        .sheet(item: $showWithdrawalDetail) { w in
-            WithdrawalDetailSheet(withdrawal: w, baseCurrency: baseCurrency)
-                .environment(\.managedObjectContext, viewContext)
         }
     }
 
@@ -402,6 +397,56 @@ struct PlatformDetailView: View {
     }
 }
 
+// MARK: - Withdrawals Section View
+
+private struct WithdrawalsSectionView: View {
+    let platform: Platform
+    let baseCurrency: String
+    @Binding var selectedWithdrawal: Withdrawal?
+
+    @FetchRequest private var withdrawals: FetchedResults<Withdrawal>
+
+    init(platform: Platform, baseCurrency: String, selectedWithdrawal: Binding<Withdrawal?>) {
+        self.platform = platform
+        self.baseCurrency = baseCurrency
+        self._selectedWithdrawal = selectedWithdrawal
+        self._withdrawals = FetchRequest<Withdrawal>(
+            sortDescriptors: [NSSortDescriptor(keyPath: \Withdrawal.date, ascending: false)],
+            predicate: NSPredicate(format: "platform == %@", platform),
+            animation: .default
+        )
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Withdrawals")
+                .font(.headline)
+                .foregroundColor(.appGold)
+
+            if withdrawals.isEmpty {
+                Text("No withdrawals recorded.")
+                    .font(.caption)
+                    .foregroundColor(.appSecondary)
+                    .padding()
+                    .frame(maxWidth: .infinity)
+                    .background(Color.appSurface)
+                    .cornerRadius(8)
+            } else {
+                ForEach(withdrawals) { withdrawal in
+                    Button {
+                        selectedWithdrawal = withdrawal
+                    } label: {
+                        WithdrawalRowView(withdrawal: withdrawal, platformCurrency: platform.displayCurrency, baseCurrency: baseCurrency)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        }
+    }
+}
+
+// MARK: - Deposit Row
+
 struct DepositRowView: View {
     let deposit: Deposit
     let platformCurrency: String
@@ -444,10 +489,14 @@ struct DepositRowView: View {
     }
 }
 
+// MARK: - Withdrawal Row
+
 struct WithdrawalRowView: View {
     let withdrawal: Withdrawal
     let platformCurrency: String
     let baseCurrency: String
+
+    private var isPending: Bool { (withdrawal.withdrawalStatus ?? "received") == "pending" }
 
     var body: some View {
         HStack {
@@ -464,28 +513,26 @@ struct WithdrawalRowView: View {
                     Text(withdrawal.method ?? "—")
                         .font(.caption)
                         .foregroundColor(.appSecondary)
-                    if withdrawal.isPending {
-                        Text("PENDING")
-                            .font(.caption2)
-                            .fontWeight(.semibold)
-                            .foregroundColor(Color(hex: "#FF9500"))
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 2)
-                            .background(Color(hex: "#2A1500"))
-                            .cornerRadius(6)
-                    }
                 }
                 Text(withdrawal.isForeignExchange ? "FX Withdrawal" : "Direct Withdrawal")
                     .font(.caption2)
                     .foregroundColor(.appSecondary)
             }
             Spacer()
-            VStack(alignment: .trailing, spacing: 2) {
-                if withdrawal.isPending {
+            VStack(alignment: .trailing, spacing: 4) {
+                if isPending {
                     Text(AppFormatter.currencySigned(-withdrawal.amountRequested, code: platformCurrency))
                         .font(.subheadline)
                         .fontWeight(.medium)
                         .foregroundColor(.appLoss)
+                    Text("PENDING")
+                        .font(.caption2)
+                        .fontWeight(.semibold)
+                        .foregroundColor(Color(hex: "#FF9500"))
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 3)
+                        .background(Color(hex: "#2A1500"))
+                        .cornerRadius(6)
                 } else {
                     Text(AppFormatter.currencySigned(withdrawal.amountReceived, code: baseCurrency))
                         .font(.subheadline)
@@ -503,17 +550,126 @@ struct WithdrawalRowView: View {
     }
 }
 
-// MARK: - Withdrawal Detail (Mark as Received)
+// MARK: - Deposit Detail Sheet
+
+struct DepositDetailSheet: View {
+    @ObservedObject var deposit: Deposit
+    @Environment(\.managedObjectContext) private var viewContext
+    @Environment(\.dismiss) private var dismiss
+    @AppStorage("baseCurrency") private var baseCurrency = "CAD"
+
+    @State private var selectedMethod: String = ""
+    private var originalMethod: String { deposit.method ?? depositMethods[0] }
+    private var methodChanged: Bool { selectedMethod != originalMethod }
+
+    var platformCurrency: String { deposit.platform?.displayCurrency ?? "USD" }
+
+    var body: some View {
+        NavigationStack {
+            ZStack {
+                Color.appBackground.ignoresSafeArea()
+                ScrollView {
+                    VStack(spacing: 12) {
+                        // Locked: Date
+                        lockedRow(label: "Date", value: AppFormatter.shortDate(deposit.date ?? Date()))
+                        // Locked: Amount Sent
+                        lockedRow(label: "Amount Sent (\(baseCurrency))", value: AppFormatter.currency(deposit.amountSent, code: baseCurrency))
+                        // Locked: Amount Received
+                        lockedRow(label: "Amount Received (\(platformCurrency))", value: AppFormatter.currency(deposit.amountReceived, code: platformCurrency))
+                        // Locked: Type
+                        lockedRow(label: "Type", value: deposit.isForeignExchange ? "FX Transfer" : "Direct Deposit")
+                        // Locked: Effective Rate (FX only)
+                        if deposit.isForeignExchange && deposit.effectiveExchangeRate > 0 {
+                            lockedRow(
+                                label: "Effective Rate (\(baseCurrency)/\(platformCurrency))",
+                                value: String(format: "%.4f", deposit.effectiveExchangeRate)
+                            )
+                        }
+
+                        // Editable: Method
+                        HStack {
+                            Text("Method")
+                                .font(.subheadline)
+                                .foregroundColor(.appSecondary)
+                            Spacer()
+                            Picker("Method", selection: $selectedMethod) {
+                                ForEach(depositMethods, id: \.self) { Text($0) }
+                            }
+                            .tint(.appGold)
+                            .pickerStyle(.menu)
+                        }
+                        .padding()
+                        .background(Color.appSurface)
+                        .cornerRadius(8)
+
+                        if methodChanged {
+                            Button {
+                                deposit.method = selectedMethod
+                                try? viewContext.save()
+                                viewContext.refreshAllObjects()
+                                NotificationCenter.default.post(name: Notification.Name("platformDataChanged"), object: nil)
+                                dismiss()
+                            } label: {
+                                Text("Save")
+                                    .font(.headline)
+                                    .foregroundColor(.black)
+                                    .frame(maxWidth: .infinity)
+                                    .padding(.vertical, 12)
+                                    .background(Color.appGold)
+                                    .cornerRadius(10)
+                            }
+                            .padding(.top, 4)
+                        }
+                    }
+                    .padding()
+                }
+            }
+            .navigationTitle("Deposit Details")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Done") { dismiss() }.foregroundColor(.appSecondary)
+                }
+            }
+        }
+        .onAppear { selectedMethod = originalMethod }
+    }
+
+    @ViewBuilder
+    func lockedRow(label: String, value: String) -> some View {
+        HStack {
+            Image(systemName: "lock.fill")
+                .font(.caption)
+                .foregroundColor(.appGold)
+            Text(label)
+                .font(.subheadline)
+                .foregroundColor(.appSecondary)
+            Spacer()
+            Text(value)
+                .font(.subheadline)
+                .foregroundColor(.appPrimary)
+        }
+        .padding()
+        .background(Color.appSurface)
+        .cornerRadius(8)
+    }
+}
+
+// MARK: - Withdrawal Detail Sheet
 
 struct WithdrawalDetailSheet: View {
-    let withdrawal: Withdrawal
+    @ObservedObject var withdrawal: Withdrawal
     let baseCurrency: String
     @Environment(\.managedObjectContext) private var viewContext
     @Environment(\.dismiss) private var dismiss
 
-    @State private var amountReceived = ""
-    @State private var settlementDate = Date()
-    @State private var showSettleForm = false
+    @State private var selectedMethod: String = ""
+    @State private var showMarkReceived = false
+    @State private var showRemoveAlert = false
+
+    private var originalMethod: String { withdrawal.method ?? withdrawalMethods[0] }
+    private var methodChanged: Bool { selectedMethod != originalMethod }
+    private var isPending: Bool { (withdrawal.withdrawalStatus ?? "received") == "pending" }
 
     var platformCurrency: String { withdrawal.platform?.displayCurrency ?? "USD" }
 
@@ -522,120 +678,222 @@ struct WithdrawalDetailSheet: View {
             ZStack {
                 Color.appBackground.ignoresSafeArea()
                 ScrollView {
-                    VStack(alignment: .leading, spacing: 16) {
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text("Requested")
-                                .font(.caption)
-                                .foregroundColor(.appSecondary)
-                            Text(AppFormatter.currency(withdrawal.amountRequested, code: platformCurrency))
-                                .font(.title3)
-                                .fontWeight(.semibold)
-                                .foregroundColor(.appPrimary)
-                            Text(AppFormatter.shortDate(withdrawal.date ?? Date()))
-                                .font(.caption)
-                                .foregroundColor(.appSecondary)
-                            Text(withdrawal.method ?? "—")
-                                .font(.caption)
-                                .foregroundColor(.appSecondary)
-                            if let n = withdrawal.notes, !n.isEmpty {
-                                Text(n)
+                    VStack(spacing: 12) {
+                        // Received badge for non-pending withdrawals
+                        if !isPending {
+                            HStack {
+                                Spacer()
+                                Text("Received")
                                     .font(.caption)
-                                    .foregroundColor(.appSecondary)
+                                    .fontWeight(.semibold)
+                                    .foregroundColor(.white)
+                                    .padding(.horizontal, 12)
+                                    .padding(.vertical, 6)
+                                    .background(Color.appProfit)
+                                    .cornerRadius(8)
+                                Spacer()
                             }
                         }
-                        .frame(maxWidth: .infinity, alignment: .leading)
+
+                        // Locked: Date
+                        lockedRow(label: "Date", value: AppFormatter.shortDate(withdrawal.date ?? Date()))
+                        // Locked: Amount Requested
+                        lockedRow(label: "Amount Requested (\(platformCurrency))", value: AppFormatter.currency(withdrawal.amountRequested, code: platformCurrency))
+                        // Locked: Amount Received (received only)
+                        if !isPending {
+                            lockedRow(label: "Amount Received (\(baseCurrency))", value: AppFormatter.currency(withdrawal.amountReceived, code: baseCurrency))
+                            if withdrawal.isForeignExchange && withdrawal.effectiveExchangeRate > 0 {
+                                lockedRow(
+                                    label: "Effective Rate (\(baseCurrency)/\(platformCurrency))",
+                                    value: String(format: "%.4f", withdrawal.effectiveExchangeRate)
+                                )
+                            }
+                            if let rd = withdrawal.receivedDate {
+                                lockedRow(label: "Received Date", value: AppFormatter.shortDate(rd))
+                            }
+                        }
+                        // Locked: Notes (if any)
+                        if let notes = withdrawal.notes, !notes.isEmpty {
+                            lockedRow(label: "Notes", value: notes)
+                        }
+
+                        // Editable: Method
+                        HStack {
+                            Text("Method")
+                                .font(.subheadline)
+                                .foregroundColor(.appSecondary)
+                            Spacer()
+                            Picker("Method", selection: $selectedMethod) {
+                                ForEach(withdrawalMethods, id: \.self) { Text($0) }
+                            }
+                            .tint(.appGold)
+                            .pickerStyle(.menu)
+                        }
                         .padding()
                         .background(Color.appSurface)
-                        .cornerRadius(12)
+                        .cornerRadius(8)
 
-                        Button {
-                            showSettleForm = true
-                        } label: {
-                            Text("Mark as Received")
-                                .font(.headline)
-                                .foregroundColor(.black)
-                                .frame(maxWidth: .infinity)
-                                .padding(.vertical, 12)
-                                .background(Color.appGold)
-                                .cornerRadius(10)
+                        if methodChanged {
+                            Button {
+                                withdrawal.method = selectedMethod
+                                try? viewContext.save()
+                                viewContext.refreshAllObjects()
+                                NotificationCenter.default.post(name: Notification.Name("platformDataChanged"), object: nil)
+                                dismiss()
+                            } label: {
+                                Text("Save")
+                                    .font(.headline)
+                                    .foregroundColor(.black)
+                                    .frame(maxWidth: .infinity)
+                                    .padding(.vertical, 12)
+                                    .background(Color.appGold)
+                                    .cornerRadius(10)
+                            }
+                            .padding(.top, 4)
+                        }
+
+                        // Action buttons for pending withdrawals
+                        if isPending {
+                            VStack(spacing: 12) {
+                                Button {
+                                    showMarkReceived = true
+                                } label: {
+                                    Text("Withdrawal Received")
+                                        .font(.headline)
+                                        .foregroundColor(.black)
+                                        .frame(maxWidth: .infinity)
+                                        .padding(.vertical, 14)
+                                        .background(Color.appGold)
+                                        .cornerRadius(12)
+                                }
+
+                                Button {
+                                    showRemoveAlert = true
+                                } label: {
+                                    Text("Withdrawal Failed")
+                                        .font(.headline)
+                                        .foregroundColor(.appLoss)
+                                        .frame(maxWidth: .infinity)
+                                        .padding(.vertical, 14)
+                                        .background(Color.appBackground)
+                                        .cornerRadius(12)
+                                        .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.appLoss, lineWidth: 1.5))
+                                }
+                            }
+                            .padding(.top, 8)
                         }
                     }
                     .padding()
                 }
             }
-            .navigationTitle("Pending Withdrawal")
+            .navigationTitle("Withdrawal Details")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Done") { dismiss() }.foregroundColor(.appSecondary)
                 }
             }
-            .sheet(isPresented: $showSettleForm) {
-                MarkAsReceivedSheet(
-                    withdrawal: withdrawal,
-                    baseCurrency: baseCurrency,
-                    amountReceived: $amountReceived,
-                    settlementDate: $settlementDate,
-                    onConfirm: {
-                        performSettle()
-                        showSettleForm = false
-                        dismiss()
-                    }
-                )
-                .environment(\.managedObjectContext, viewContext)
+        }
+        .onAppear { selectedMethod = originalMethod }
+        .sheet(isPresented: $showMarkReceived, onDismiss: {
+            if (withdrawal.withdrawalStatus ?? "received") == "received" {
+                dismiss()
             }
+        }) {
+            MarkReceivedSheet(withdrawal: withdrawal, baseCurrency: baseCurrency)
+                .environment(\.managedObjectContext, viewContext)
+        }
+        .alert("Remove Withdrawal?", isPresented: $showRemoveAlert) {
+            Button("Remove", role: .destructive) {
+                viewContext.delete(withdrawal)
+                try? viewContext.save()
+                viewContext.refreshAllObjects()
+                NotificationCenter.default.post(name: Notification.Name("platformDataChanged"), object: nil)
+                dismiss()
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This withdrawal will be removed and your platform balance will be restored.")
         }
     }
 
-    func performSettle() {
-        let received = Double(amountReceived) ?? 0
-        withdrawal.isPending = false
-        withdrawal.amountReceived = received
-        withdrawal.settlementDate = settlementDate
-        do {
-            try viewContext.save()
-        } catch {
-            print("Settle withdrawal error: \(error)")
+    @ViewBuilder
+    func lockedRow(label: String, value: String) -> some View {
+        HStack {
+            Image(systemName: "lock.fill")
+                .font(.caption)
+                .foregroundColor(.appGold)
+            Text(label)
+                .font(.subheadline)
+                .foregroundColor(.appSecondary)
+            Spacer()
+            Text(value)
+                .font(.subheadline)
+                .foregroundColor(.appPrimary)
         }
+        .padding()
+        .background(Color.appSurface)
+        .cornerRadius(8)
     }
 }
 
-struct MarkAsReceivedSheet: View {
-    let withdrawal: Withdrawal
+// MARK: - Mark Received Sheet
+
+struct MarkReceivedSheet: View {
+    @ObservedObject var withdrawal: Withdrawal
     let baseCurrency: String
-    @Binding var amountReceived: String
-    @Binding var settlementDate: Date
-    let onConfirm: () -> Void
     @Environment(\.managedObjectContext) private var viewContext
     @Environment(\.dismiss) private var dismiss
+    @AppStorage("exchangeRateInputMode") private var exchangeRateInputMode = "direct"
 
-    var isValid: Bool { (Double(amountReceived) ?? 0) > 0 }
+    @State private var isForeignExchange = false
+    @State private var amountReceivedText = ""
+    @State private var receivedDate = Date()
+    @State private var exchangeRateStr = ""
+    @State private var selectedMethod: String = ""
+    @State private var notes: String = ""
+
+    var platformCurrency: String { withdrawal.platform?.displayCurrency ?? "USD" }
+    var isForeignCurrency: Bool { platformCurrency != baseCurrency }
+
+    // Mode A: base = requested × rate
+    var computedBaseAmount: Double {
+        let req = withdrawal.amountRequested
+        let rate = Double(exchangeRateStr) ?? 0
+        guard req > 0, rate > 0 else { return 0 }
+        return req * rate
+    }
+
+    // Mode B: rate = base / requested
+    var computedRate: Double {
+        let req = withdrawal.amountRequested
+        let base = Double(amountReceivedText) ?? 0
+        guard req > 0, base > 0 else { return 0 }
+        return base / req
+    }
+
+    var isValid: Bool {
+        if isForeignExchange && isForeignCurrency {
+            if exchangeRateInputMode == "direct" {
+                return (Double(exchangeRateStr) ?? 0) > 0
+            } else {
+                return (Double(amountReceivedText) ?? 0) > 0
+            }
+        }
+        return (Double(amountReceivedText) ?? 0) > 0
+    }
 
     var body: some View {
         NavigationStack {
             ZStack {
                 Color.appBackground.ignoresSafeArea()
                 Form {
-                    Section {
-                        HStack {
-                            Text("Amount Received (\(baseCurrency))")
-                                .foregroundColor(.appPrimary)
-                            Spacer()
-                            CurrencyInputField(text: $amountReceived, width: 120)
-                        }
-                        .listRowBackground(Color.appSurface)
-
-                        DatePicker("Settlement Date", selection: $settlementDate, displayedComponents: .date)
-                            .foregroundColor(.appPrimary)
-                            .tint(.appGold)
-                            .listRowBackground(Color.appSurface)
-                    } header: {
-                        Text("Settlement").foregroundColor(.appGold).textCase(nil)
-                    }
+                    amountsSection
+                    detailsSection
 
                     Section {
                         Button {
-                            onConfirm()
+                            confirmReceived()
                         } label: {
                             Text("Confirm")
                                 .font(.headline)
@@ -650,7 +908,7 @@ struct MarkAsReceivedSheet: View {
                 .scrollContentBackground(.hidden)
                 .background(Color.appBackground)
             }
-            .navigationTitle("Mark as Received")
+            .navigationTitle("Withdrawal Received")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -658,5 +916,182 @@ struct MarkAsReceivedSheet: View {
                 }
             }
         }
+        .onAppear {
+            isForeignExchange = isForeignCurrency
+            let storedRate = withdrawal.effectiveExchangeRate
+            if isForeignCurrency && storedRate > 0 {
+                exchangeRateStr = String(format: "%.4f", storedRate)
+            }
+            selectedMethod = withdrawal.method ?? withdrawalMethods[0]
+        }
+    }
+
+    var amountsSection: some View {
+        Section {
+            // Amount Requested (read-only locked)
+            lockedRow(
+                label: "Amount Requested (\(platformCurrency))",
+                value: AppFormatter.currency(withdrawal.amountRequested, code: platformCurrency)
+            )
+
+            if isForeignCurrency {
+                Toggle(isOn: $isForeignExchange.animation(.easeInOut)) {
+                    Text("Foreign Exchange").foregroundColor(.appPrimary)
+                }
+                .tint(.appGold)
+                .listRowBackground(Color.appSurface)
+            }
+
+            if isForeignExchange && isForeignCurrency {
+                if exchangeRateInputMode == "direct" {
+                    // Mode A: user enters rate
+                    HStack {
+                        Text("Cash-Out Rate").foregroundColor(.appPrimary)
+                        Spacer()
+                        CurrencyInputField(text: $exchangeRateStr, width: 90, maxDecimalPlaces: 4, textColor: .appGold)
+                        Text("\(baseCurrency)/\(platformCurrency)")
+                            .font(.caption).foregroundColor(.appSecondary)
+                    }
+                    .listRowBackground(Color.appSurface)
+
+                    HStack {
+                        Text("Amount Received (\(baseCurrency))").foregroundColor(.appSecondary)
+                        Spacer()
+                        Text(computedBaseAmount > 0
+                             ? AppFormatter.currency(computedBaseAmount, code: baseCurrency)
+                             : "—")
+                            .foregroundColor(.appNeutral)
+                    }
+                    .listRowBackground(Color.appSurface)
+                } else {
+                    // Mode B: user enters base amount
+                    HStack {
+                        Text("Amount Received (\(baseCurrency))").foregroundColor(.appPrimary)
+                        Spacer()
+                        CurrencyInputField(text: $amountReceivedText, width: 120)
+                    }
+                    .listRowBackground(Color.appSurface)
+                }
+
+                // Effective Rate (read-only display)
+                let rate = exchangeRateInputMode == "direct"
+                    ? (Double(exchangeRateStr) ?? 0)
+                    : computedRate
+                if rate > 0 {
+                    HStack {
+                        Text("Effective Rate (\(baseCurrency)/\(platformCurrency))")
+                            .foregroundColor(.appSecondary)
+                        Spacer()
+                        Text(String(format: "%.4f", rate))
+                            .foregroundColor(.appNeutral)
+                    }
+                    .listRowBackground(Color.appSurface)
+                }
+            } else {
+                // FX OFF: platform currency amount
+                HStack {
+                    Text("Amount Received (\(platformCurrency))").foregroundColor(.appPrimary)
+                    Spacer()
+                    CurrencyInputField(text: $amountReceivedText, width: 120)
+                }
+                .listRowBackground(Color.appSurface)
+            }
+        } header: {
+            Text("Amounts").foregroundColor(.appGold).textCase(nil)
+        }
+    }
+
+    var detailsSection: some View {
+        Section {
+            // Method (editable)
+            Picker("Method", selection: $selectedMethod) {
+                ForEach(withdrawalMethods, id: \.self) { Text($0) }
+            }
+            .foregroundColor(.appPrimary)
+            .tint(.appGold)
+            .listRowBackground(Color.appSurface)
+
+            // Date Requested (read-only locked)
+            lockedRow(
+                label: "Date Requested",
+                value: AppFormatter.shortDate(withdrawal.date ?? Date())
+            )
+
+            // Date Received (editable)
+            DatePicker("Date Received", selection: $receivedDate, displayedComponents: .date)
+                .foregroundColor(.appPrimary)
+                .tint(.appGold)
+                .listRowBackground(Color.appSurface)
+
+            // Notes (editable)
+            TextField("Notes (optional)", text: $notes, axis: .vertical)
+                .lineLimit(3...6)
+                .foregroundColor(.appPrimary)
+                .listRowBackground(Color.appSurface)
+        } header: {
+            Text("Details").foregroundColor(.appGold).textCase(nil)
+        }
+    }
+
+    @ViewBuilder
+    func lockedRow(label: String, value: String) -> some View {
+        HStack {
+            Image(systemName: "lock.fill")
+                .font(.caption)
+                .foregroundColor(.appGold)
+            Text(label)
+                .font(.subheadline)
+                .foregroundColor(.appSecondary)
+            Spacer()
+            Text(value)
+                .font(.subheadline)
+                .foregroundColor(.appPrimary)
+        }
+        .padding()
+        .background(Color.appSurface)
+        .cornerRadius(8)
+        .listRowInsets(EdgeInsets())
+        .listRowBackground(Color.clear)
+    }
+
+    func confirmReceived() {
+        let receivedAmount: Double
+        let finalRate: Double
+
+        if isForeignExchange && isForeignCurrency {
+            if exchangeRateInputMode == "direct" {
+                let rate = Double(exchangeRateStr) ?? 0
+                guard rate > 0 else { return }
+                receivedAmount = computedBaseAmount
+                finalRate = rate
+            } else {
+                let base = Double(amountReceivedText) ?? 0
+                guard base > 0 else { return }
+                receivedAmount = base
+                finalRate = computedRate > 0 ? computedRate : 1.0
+            }
+        } else {
+            let amount = Double(amountReceivedText) ?? 0
+            guard amount > 0 else { return }
+            receivedAmount = amount
+            finalRate = 1.0
+        }
+
+        withdrawal.amountReceived = receivedAmount
+        withdrawal.receivedDate = receivedDate
+        withdrawal.withdrawalStatus = "received"
+        withdrawal.effectiveExchangeRate = finalRate
+        withdrawal.isForeignExchange = isForeignExchange && isForeignCurrency
+        withdrawal.method = selectedMethod
+        if !notes.isEmpty {
+            withdrawal.notes = notes
+        }
+        if let platform = withdrawal.platform {
+            viewContext.refresh(platform, mergeChanges: true)
+        }
+        try? viewContext.save()
+        viewContext.refreshAllObjects()
+        NotificationCenter.default.post(name: Notification.Name("platformDataChanged"), object: nil)
+        dismiss()
     }
 }

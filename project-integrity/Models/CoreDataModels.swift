@@ -191,8 +191,8 @@ public class Withdrawal: NSManagedObject {
     @NSManaged public var processingFee: Double
     @NSManaged public var method: String?
     @NSManaged public var notes: String?
-    @NSManaged public var isPending: Bool
-    @NSManaged public var settlementDate: Date?
+    @NSManaged public var withdrawalStatus: String?
+    @NSManaged public var receivedDate: Date?
     @NSManaged public var platform: Platform?
 
     public static func fetchRequest() -> NSFetchRequest<Withdrawal> {

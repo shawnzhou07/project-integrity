@@ -123,11 +123,9 @@ struct DepositFormView: View {
                 if isForeignExchange {
                     // Effective Rate (auto-calc, editable)
                     HStack {
-                        Text("Effective Rate").foregroundColor(.appSecondary)
+                        Text("Effective Rate (\(baseCurrency)/\(platform.displayCurrency))").foregroundColor(.appSecondary)
                         Spacer()
                         CurrencyInputField(text: $effectiveRateStr, width: 90, maxDecimalPlaces: 4, textColor: .appGold)
-                        Text("\(platform.displayCurrency)/\(baseCurrency)")
-                            .font(.caption).foregroundColor(.appSecondary)
                     }
                     .listRowBackground(Color.appSurface)
                 } else {
@@ -222,6 +220,8 @@ struct DepositFormView: View {
 
         do {
             try viewContext.save()
+            viewContext.refreshAllObjects()
+            NotificationCenter.default.post(name: Notification.Name("platformDataChanged"), object: nil)
             dismiss()
         } catch {
             print("Save deposit error: \(error)")

@@ -107,8 +107,45 @@ struct WithdrawalExport: Codable {
     let effectiveExchangeRate: Double
     let processingFee: Double
     let method: String?
-    let isPending: Bool?
-    let settlementDate: Date?
+    let withdrawalStatus: String?
+    let receivedDate: Date?
+
+    enum CodingKeys: String, CodingKey {
+        case id, platformName, date, amountRequested, amountReceived
+        case isForeignExchange, effectiveExchangeRate, processingFee, method
+        case withdrawalStatus, receivedDate
+    }
+
+    init(id: UUID, platformName: String?, date: Date?, amountRequested: Double, amountReceived: Double,
+         isForeignExchange: Bool, effectiveExchangeRate: Double, processingFee: Double, method: String?,
+         withdrawalStatus: String?, receivedDate: Date?) {
+        self.id = id
+        self.platformName = platformName
+        self.date = date
+        self.amountRequested = amountRequested
+        self.amountReceived = amountReceived
+        self.isForeignExchange = isForeignExchange
+        self.effectiveExchangeRate = effectiveExchangeRate
+        self.processingFee = processingFee
+        self.method = method
+        self.withdrawalStatus = withdrawalStatus
+        self.receivedDate = receivedDate
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(UUID.self, forKey: .id)
+        platformName = try container.decodeIfPresent(String.self, forKey: .platformName)
+        date = try container.decodeIfPresent(Date.self, forKey: .date)
+        amountRequested = try container.decode(Double.self, forKey: .amountRequested)
+        amountReceived = try container.decode(Double.self, forKey: .amountReceived)
+        isForeignExchange = try container.decode(Bool.self, forKey: .isForeignExchange)
+        effectiveExchangeRate = (try? container.decode(Double.self, forKey: .effectiveExchangeRate)) ?? 1.0
+        processingFee = try container.decode(Double.self, forKey: .processingFee)
+        method = try container.decodeIfPresent(String.self, forKey: .method)
+        withdrawalStatus = try container.decodeIfPresent(String.self, forKey: .withdrawalStatus) ?? "received"
+        receivedDate = try container.decodeIfPresent(Date.self, forKey: .receivedDate)
+    }
 }
 
 struct AdjustmentExport: Codable {
@@ -595,7 +632,7 @@ struct SettingsView: View {
         let req = NSFetchRequest<Withdrawal>(entityName: "Withdrawal")
         let results = try viewContext.fetch(req)
         return results.map {
-            WithdrawalExport(id: $0.id ?? UUID(), platformName: $0.platform?.name, date: $0.date, amountRequested: $0.amountRequested, amountReceived: $0.amountReceived, isForeignExchange: $0.isForeignExchange, effectiveExchangeRate: $0.effectiveExchangeRate, processingFee: $0.processingFee, method: $0.method, isPending: $0.isPending, settlementDate: $0.settlementDate)
+            WithdrawalExport(id: $0.id ?? UUID(), platformName: $0.platform?.name, date: $0.date, amountRequested: $0.amountRequested, amountReceived: $0.amountReceived, isForeignExchange: $0.isForeignExchange, effectiveExchangeRate: $0.effectiveExchangeRate, processingFee: $0.processingFee, method: $0.method, withdrawalStatus: $0.withdrawalStatus ?? "received", receivedDate: $0.receivedDate)
         }
     }
 
@@ -768,8 +805,8 @@ struct SettingsView: View {
             withdrawal.effectiveExchangeRate = w.effectiveExchangeRate
             withdrawal.processingFee = w.processingFee
             withdrawal.method = w.method
-            withdrawal.isPending = w.isPending ?? false
-            withdrawal.settlementDate = w.settlementDate
+            withdrawal.withdrawalStatus = w.withdrawalStatus ?? "received"
+            withdrawal.receivedDate = w.receivedDate
             addedWithdrawals += 1
         }
 
