@@ -54,22 +54,31 @@ extension Platform {
             }
 
             var balance = anchor.balanceAfter
+            // Only include records strictly after anchorEnd — everything on or before is already
+            // baked into anchor.balanceAfter and must never be double-counted.
             let postAnchorDeposits = deps.filter { ($0.date ?? .distantPast) > anchorEnd }.reduce(0) { $0 + $1.amountReceived }
-            // FIX: deduct ALL pending/received withdrawals regardless of date relative to anchor.
-            // The anchor's balanceAfter reflects the actual platform balance at verification time, but
-            // withdrawals entered after that verification (or backdated before it) are NOT baked into
-            // balanceAfter. The date guard was silently dropping them. Both paths must be symmetric.
-            let allWithdrawals = withs.filter {
+            let postAnchorWithdrawals = withs.filter {
                 let status = $0.withdrawalStatus ?? "received"
-                return status == "pending" || status == "received"
+                return (status == "pending" || status == "received") && ($0.date ?? .distantPast) > anchorEnd
             }.reduce(0) { $0 + $1.amountRequested }
             let postAnchorAdjs = adjs.filter { ($0.date ?? .distantPast) > anchorEnd }.reduce(0) { $0 + Platform.effectiveAmount(for: $1, platformCurrency: platformCurr) }
 
             balance += postAnchorDeposits
-            balance -= allWithdrawals
+            balance -= postAnchorWithdrawals
             balance += postAnchorAdjs
 
-            print("[currentBalance]   +postAnchorDeposits=\(postAnchorDeposits), -allWithdrawals=\(allWithdrawals), +postAnchorAdjs=\(postAnchorAdjs), final=\(balance)")
+            print("[currentBalance]   +postAnchorDeposits=\(postAnchorDeposits), -postAnchorWithdrawals=\(postAnchorWithdrawals), +postAnchorAdjs=\(postAnchorAdjs), final=\(balance)")
+
+            // Defensive guard: a negative balance with a verified anchor session indicates a logic error.
+            if balance < 0 {
+                print("[currentBalance] WARNING: computed balance \(balance) is negative for platform '\(displayName)'.")
+                print("[currentBalance]   anchor session endTime=\(anchorEnd), balanceAfter=\(anchor.balanceAfter)")
+                print("[currentBalance]   post-anchor deposits=\(postAnchorDeposits), post-anchor withdrawals=\(postAnchorWithdrawals), post-anchor adjs=\(postAnchorAdjs)")
+                for w in withs.filter({ ($0.date ?? .distantPast) > anchorEnd }) {
+                    print("[currentBalance]   included withdrawal: requested=\(w.amountRequested) \(platformCurr), status=\(w.withdrawalStatus ?? "nil"), date=\(String(describing: w.date))")
+                }
+            }
+
             return balance
         }
 

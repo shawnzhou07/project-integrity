@@ -1,3 +1,4 @@
+// Refer to UI_MASTER.md at project root before making UI changes.
 import SwiftUI
 import CoreData
 import Combine
@@ -33,6 +34,8 @@ struct OnlineSessionEntryView: View {
     @State private var tables = 1
     @State private var balanceBefore = ""
     @State private var balanceAfter = ""
+    @State private var balanceAfterManuallyEdited = false
+    @State private var isAutoFillingBalanceAfter = false
     @State private var handsOverride = ""
     @State private var notes = ""
 
@@ -170,10 +173,8 @@ struct OnlineSessionEntryView: View {
             .onAppear {
                 if let session = existingSession {
                     loadFromExisting(session)
-                } else if selectedPlatform == nil, let first = platforms.first {
-                    selectedPlatform = first
-                    autoFillBalanceBefore(from: first)
-                    applyPlatformDefaultTableSize()
+                } else if selectedPlatform == nil {
+                    prefillMostRecentPlatform()
                 }
                 updateSuggestedBlinds()
             }
@@ -183,6 +184,12 @@ struct OnlineSessionEntryView: View {
                     applyPlatformDefaultTableSize()
                 }
                 updateSuggestedBlinds()
+            }
+            .onChange(of: balanceBefore) { _, newVal in
+                if !balanceAfterManuallyEdited {
+                    isAutoFillingBalanceAfter = true
+                    balanceAfter = newVal
+                }
             }
             .onReceive(timer) { t in if entryState == .active { tick = t } }
     }
@@ -202,6 +209,17 @@ struct OnlineSessionEntryView: View {
     func autoFillBalanceBefore(from platform: Platform) {
         let bal = platform.currentBalance
         balanceBefore = bal == 0 ? "" : String(format: "%.2f", bal)
+    }
+
+    func prefillMostRecentPlatform() {
+        let request = NSFetchRequest<OnlineCash>(entityName: "OnlineCash")
+        request.sortDescriptors = [NSSortDescriptor(keyPath: \OnlineCash.startTime, ascending: false)]
+        request.fetchLimit = 1
+        guard let recent = try? viewContext.fetch(request).first,
+              let platform = recent.platform else { return }
+        selectedPlatform = platform
+        autoFillBalanceBefore(from: platform)
+        applyPlatformDefaultTableSize()
     }
 
     var discrepancyAlertTitle: String { "Balance Discrepancy" }
@@ -463,7 +481,14 @@ struct OnlineSessionEntryView: View {
                 Spacer()
                 Text(platformCurrency).font(.caption).foregroundColor(.appSecondary)
                 CurrencyInputField(text: $balanceAfter, width: 100)
-                    .onChange(of: balanceAfter) { _, _ in autoSaveIfActive() }
+                    .onChange(of: balanceAfter) { _, _ in
+                        if isAutoFillingBalanceAfter {
+                            isAutoFillingBalanceAfter = false
+                        } else {
+                            balanceAfterManuallyEdited = true
+                        }
+                        autoSaveIfActive()
+                    }
             }
             .listRowBackground(Color.appSurface)
 
@@ -599,7 +624,7 @@ struct OnlineSessionEntryView: View {
         session.netProfitLoss = netResult
         session.exchangeRateToBase = platform.latestFXConversionRate
         session.netProfitLossBase = netResultBase
-        session.handsCount = Int32(handsOverride) ?? 0
+        session.handsCount = Int32(handsOverride) ?? Int32(estimatedHands)
         session.notes = notes.isEmpty ? nil : notes
         do {
             try viewContext.save()
@@ -628,6 +653,7 @@ struct OnlineSessionEntryView: View {
         session.tables = Int16(tables)
         session.balanceBefore = Double(balanceBefore) ?? 0
         session.balanceAfter = Double(balanceAfter) ?? 0
+        session.handsCount = Int32(handsOverride) ?? Int32(estimatedHands)
         session.exchangeRateToBase = platform.latestFXConversionRate
         session.notes = notes.isEmpty ? nil : notes
         try? viewContext.save()
@@ -654,6 +680,7 @@ struct OnlineSessionEntryView: View {
         tables = Int(session.tables)
         balanceBefore = session.balanceBefore > 0 ? String(session.balanceBefore) : ""
         balanceAfter = session.balanceAfter > 0 ? String(session.balanceAfter) : ""
+        balanceAfterManuallyEdited = true
         handsOverride = session.handsCount > 0 ? String(session.handsCount) : ""
         notes = session.notes ?? ""
         startTime = session.startTime ?? Date()

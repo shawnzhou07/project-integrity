@@ -84,7 +84,7 @@
         <attribute name="method" optional="YES" attributeType="String"/>
         <attribute name="notes" optional="YES" attributeType="String"/>
         <attribute name="processingFee" optional="YES" attributeType="Double" defaultValueString="0.0" usesScalarValueType="YES"/>
-        <relationship name="platform" optional="YES" maxCount="1" deletionRule="Nullify" destinationEntity="Platform" inverseName="withdrawals" inverseEntity="Withdrawal"/>
+        <relationship name="platform" optional="YES" maxCount="1" deletionRule="Nullify" destinationEntity="Platform" inverseName="withdrawals" inverseEntity="Platform"/>
     </entity>
     <entity name="Adjustment" representedClassName="Adjustment" syncable="YES" codeGenerationType="none">
         <attribute name="amount" optional="YES" attributeType="Double" defaultValueString="0.0" usesScalarValueType="YES"/>
@@ -97,7 +97,7 @@
         <attribute name="location" optional="YES" attributeType="String"/>
         <attribute name="name" optional="YES" attributeType="String"/>
         <attribute name="notes" optional="YES" attributeType="String"/>
-        <relationship name="platform" optional="YES" maxCount="1" deletionRule="Nullify" destinationEntity="Platform" inverseName="adjustments" inverseEntity="Adjustment"/>
+        <relationship name="platform" optional="YES" maxCount="1" deletionRule="Nullify" destinationEntity="Platform" inverseName="adjustments" inverseEntity="Platform"/>
     </entity>
     <entity name="Location" representedClassName="Location" syncable="YES" codeGenerationType="none">
         <attribute name="id" optional="YES" attributeType="UUID" usesScalarValueType="NO"/>

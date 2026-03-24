@@ -1,3 +1,4 @@
+// Refer to UI_MASTER.md at project root before making UI changes.
 import SwiftUI
 import CoreData
 
@@ -7,6 +8,14 @@ struct PlatformDetailView: View {
     @AppStorage("baseCurrency") private var baseCurrency = "CAD"
 
     @EnvironmentObject var coordinator: ActiveSessionCoordinator
+    @FetchRequest(
+        sortDescriptors: [],
+        predicate: NSPredicate(format: "isVerified == NO AND endTime != nil")
+    ) private var unverifiedOnlineSessions: FetchedResults<OnlineCash>
+    @FetchRequest(
+        sortDescriptors: [],
+        predicate: NSPredicate(format: "isVerified == NO AND endTime != nil")
+    ) private var unverifiedLiveSessions: FetchedResults<LiveCash>
 
     @State private var showDeposit = false
     @State private var showWithdrawal = false
@@ -14,7 +23,7 @@ struct PlatformDetailView: View {
     @State private var showDeleteAlert = false
     @State private var selectedDeposit: Deposit? = nil
     @State private var selectedWithdrawal: Withdrawal? = nil
-    @State private var refreshID = UUID()
+    @State private var showUnverifiedSessionAlert = false
     @Environment(\.dismiss) private var dismiss
 
     var hasAnyRecords: Bool {
@@ -23,10 +32,12 @@ struct PlatformDetailView: View {
         !platform.onlineSessionsArray.isEmpty ||
         !platform.adjustmentsArray.isEmpty
     }
+    var hasUnverifiedSession: Bool {
+        !unverifiedOnlineSessions.isEmpty || !unverifiedLiveSessions.isEmpty
+    }
 
     func performRefresh() async {
         viewContext.refreshAllObjects()
-        refreshID = UUID()
     }
 
     var body: some View {
@@ -48,7 +59,6 @@ struct PlatformDetailView: View {
                 await performRefresh()
             }
         }
-        .id(refreshID)
         .navigationTitle(platform.displayName)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
@@ -61,49 +71,23 @@ struct PlatformDetailView: View {
                 }
             }
         }
-        .sheet(isPresented: $showDeposit, onDismiss: {
-            viewContext.refreshAllObjects()
-            refreshID = UUID()
-        }) {
+        .sheet(isPresented: $showDeposit) {
             DepositFormView(platform: platform)
         }
-        .sheet(isPresented: $showWithdrawal, onDismiss: {
-            viewContext.refreshAllObjects()
-            refreshID = UUID()
-        }) {
+        .sheet(isPresented: $showWithdrawal) {
             WithdrawalFormView(platform: platform)
         }
-        .sheet(isPresented: $showAdjustment, onDismiss: {
-            viewContext.refreshAllObjects()
-            refreshID = UUID()
-        }) {
+        .sheet(isPresented: $showAdjustment) {
             AddAdjustmentView(initialPlatform: platform)
                 .environmentObject(coordinator)
         }
-        .sheet(item: $selectedDeposit, onDismiss: {
-            viewContext.refreshAllObjects()
-            refreshID = UUID()
-        }) { d in
+        .sheet(item: $selectedDeposit) { d in
             DepositDetailSheet(deposit: d)
                 .environment(\.managedObjectContext, viewContext)
         }
-        .sheet(item: $selectedWithdrawal, onDismiss: {
-            viewContext.refreshAllObjects()
-            refreshID = UUID()
-        }) { w in
+        .sheet(item: $selectedWithdrawal) { w in
             WithdrawalDetailSheet(withdrawal: w, baseCurrency: baseCurrency)
                 .environment(\.managedObjectContext, viewContext)
-        }
-        .onAppear {
-            viewContext.refreshAllObjects()
-        }
-        .onReceive(NotificationCenter.default.publisher(for: Notification.Name("sessionVerified"))) { _ in
-            viewContext.refreshAllObjects()
-            refreshID = UUID()
-        }
-        .onReceive(NotificationCenter.default.publisher(for: Notification.Name("platformDataChanged"))) { _ in
-            viewContext.refreshAllObjects()
-            refreshID = UUID()
         }
         .alert("Delete Platform?", isPresented: $showDeleteAlert) {
             Button("Delete", role: .destructive) {
@@ -114,6 +98,11 @@ struct PlatformDetailView: View {
             Button("Cancel", role: .cancel) {}
         } message: {
             Text("This will permanently delete this platform. This cannot be undone.")
+        }
+        .alert("Unverified Session", isPresented: $showUnverifiedSessionAlert) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text("You have an unverified session. Please verify your previous session before recording a deposit or withdrawal.")
         }
     }
 
@@ -178,47 +167,61 @@ struct PlatformDetailView: View {
     // MARK: - Action Buttons
 
     var actionButtons: some View {
-        HStack(spacing: 12) {
-            Button {
-                showDeposit = true
-            } label: {
-                Label("Deposit", systemImage: "arrow.down.circle.fill")
-                    .font(.subheadline)
-                    .fontWeight(.medium)
-                    .foregroundColor(Color(hex: "#F44336"))
-                    .frame(maxWidth: .infinity)
-                    .padding(10)
-                    .background(Color.appSurface)
-                    .cornerRadius(8)
-                    .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color(hex: "#F44336").opacity(0.4), lineWidth: 1))
+        VStack(spacing: 10) {
+            HStack(spacing: 8) {
+                Button {
+                    if hasUnverifiedSession {
+                        showUnverifiedSessionAlert = true
+                    } else {
+                        showDeposit = true
+                    }
+                } label: {
+                    actionPill(title: "Deposit", systemImage: "arrow.down.circle.fill", tint: Color(hex: "#F44336"))
+                }
+                Button {
+                    if hasUnverifiedSession {
+                        showUnverifiedSessionAlert = true
+                    } else {
+                        showWithdrawal = true
+                    }
+                } label: {
+                    actionPill(title: "Withdraw", systemImage: "arrow.up.circle.fill", tint: Color(hex: "#4CAF50"))
+                }
+                Button {
+                    showAdjustment = true
+                } label: {
+                    actionPill(title: "Adjust", systemImage: "plusminus.circle.fill", tint: .appGold)
+                }
             }
-            Button {
-                showWithdrawal = true
+            NavigationLink {
+                OnlinePlatformAnalyticsView(platform: platform)
+                    .environment(\.managedObjectContext, viewContext)
             } label: {
-                Label("Withdraw", systemImage: "arrow.up.circle.fill")
+                Label("Analytics", systemImage: "chart.bar.xaxis")
                     .font(.subheadline)
-                    .fontWeight(.medium)
-                    .foregroundColor(Color(hex: "#4CAF50"))
-                    .frame(maxWidth: .infinity)
-                    .padding(10)
-                    .background(Color.appSurface)
-                    .cornerRadius(8)
-                    .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color(hex: "#4CAF50").opacity(0.4), lineWidth: 1))
-            }
-            Button {
-                showAdjustment = true
-            } label: {
-                Label("Adjust", systemImage: "plusminus.circle.fill")
-                    .font(.subheadline)
-                    .fontWeight(.medium)
+                    .fontWeight(.semibold)
                     .foregroundColor(.appGold)
                     .frame(maxWidth: .infinity)
-                    .padding(10)
+                    .padding(.vertical, 12)
                     .background(Color.appSurface)
-                    .cornerRadius(8)
-                    .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.appGold.opacity(0.4), lineWidth: 1))
+                    .cornerRadius(12)
+                    .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.appGold.opacity(0.4), lineWidth: 1))
             }
         }
+    }
+
+    @ViewBuilder
+    private func actionPill(title: String, systemImage: String, tint: Color) -> some View {
+        Label(title, systemImage: systemImage)
+            .font(.system(size: 13, weight: .semibold))
+            .lineLimit(1)
+            .minimumScaleFactor(0.85)
+            .foregroundColor(tint)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 10)
+            .background(Color.appSurface)
+            .cornerRadius(12)
+            .overlay(RoundedRectangle(cornerRadius: 12).stroke(tint.opacity(0.4), lineWidth: 1))
     }
 
     // MARK: - Sessions Section

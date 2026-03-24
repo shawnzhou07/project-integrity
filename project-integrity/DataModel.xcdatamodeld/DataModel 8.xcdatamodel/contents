@@ -14,6 +14,7 @@
     <entity name="OnlineCash" representedClassName="OnlineCash" syncable="YES" codeGenerationType="none">
         <attribute name="ante" optional="YES" attributeType="Double" defaultValueString="0.0" usesScalarValueType="YES"/>
         <attribute name="balanceAfter" optional="YES" attributeType="Double" defaultValueString="0.0" usesScalarValueType="YES"/>
+        <attribute name="balanceAfterOverride" optional="YES" attributeType="Double" defaultValueString="0.0" usesScalarValueType="YES"/>
         <attribute name="balanceBefore" optional="YES" attributeType="Double" defaultValueString="0.0" usesScalarValueType="YES"/>
         <attribute name="bigBlind" optional="YES" attributeType="Double" defaultValueString="0.0" usesScalarValueType="YES"/>
         <attribute name="blinds" optional="YES" attributeType="String"/>
@@ -86,7 +87,7 @@
         <attribute name="processingFee" optional="YES" attributeType="Double" defaultValueString="0.0" usesScalarValueType="YES"/>
         <attribute name="receivedDate" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
         <attribute name="withdrawalStatus" optional="YES" attributeType="String" defaultValueString="received"/>
-        <relationship name="platform" optional="YES" maxCount="1" deletionRule="Nullify" destinationEntity="Platform" inverseName="withdrawals" inverseEntity="Withdrawal"/>
+        <relationship name="platform" optional="YES" maxCount="1" deletionRule="Nullify" destinationEntity="Platform" inverseName="withdrawals" inverseEntity="Platform"/>
     </entity>
     <entity name="Adjustment" representedClassName="Adjustment" syncable="YES" codeGenerationType="none">
         <attribute name="amount" optional="YES" attributeType="Double" defaultValueString="0.0" usesScalarValueType="YES"/>
@@ -99,7 +100,7 @@
         <attribute name="location" optional="YES" attributeType="String"/>
         <attribute name="name" optional="YES" attributeType="String"/>
         <attribute name="notes" optional="YES" attributeType="String"/>
-        <relationship name="platform" optional="YES" maxCount="1" deletionRule="Nullify" destinationEntity="Platform" inverseName="adjustments" inverseEntity="Adjustment"/>
+        <relationship name="platform" optional="YES" maxCount="1" deletionRule="Nullify" destinationEntity="Platform" inverseName="adjustments" inverseEntity="Platform"/>
     </entity>
     <entity name="Location" representedClassName="Location" syncable="YES" codeGenerationType="none">
         <attribute name="id" optional="YES" attributeType="UUID" usesScalarValueType="NO"/>

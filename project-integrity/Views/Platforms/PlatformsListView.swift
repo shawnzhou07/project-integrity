@@ -1,3 +1,4 @@
+// Refer to UI_MASTER.md at project root before making UI changes.
 import SwiftUI
 import CoreData
 
@@ -79,12 +80,18 @@ struct PlatformsListView: View {
         .sheet(isPresented: $showAddPlatform) {
             AddPlatformView()
         }
-        .sheet(isPresented: $showExternalDeposit) {
+        .sheet(isPresented: $showExternalDeposit, onDismiss: {
+            viewContext.refreshAllObjects()
+            refreshID = UUID()
+        }) {
             if let p = externalDepositPlatform {
                 DepositFormView(platform: p)
             }
         }
-        .sheet(isPresented: $showExternalWithdrawal) {
+        .sheet(isPresented: $showExternalWithdrawal, onDismiss: {
+            viewContext.refreshAllObjects()
+            refreshID = UUID()
+        }) {
             if let p = externalWithdrawalPlatform {
                 WithdrawalFormView(platform: p)
             }
@@ -96,6 +103,7 @@ struct PlatformsListView: View {
         }
         .onAppear {
             viewContext.refreshAllObjects()
+            refreshID = UUID()
             handleCoordinatorTriggers()
         }
         .onReceive(NotificationCenter.default.publisher(for: Notification.Name("sessionVerified"))) { _ in
@@ -103,6 +111,10 @@ struct PlatformsListView: View {
             refreshID = UUID()
         }
         .onReceive(NotificationCenter.default.publisher(for: Notification.Name("platformDataChanged"))) { _ in
+            viewContext.refreshAllObjects()
+            refreshID = UUID()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: Notification.Name("balanceUpdated"))) { _ in
             viewContext.refreshAllObjects()
             refreshID = UUID()
         }

@@ -1,11 +1,21 @@
+// Refer to UI_MASTER.md at project root before making UI changes.
 import SwiftUI
 import CoreData
+import Combine
 
 struct DepositFormView: View {
     let platform: Platform
     @Environment(\.managedObjectContext) private var viewContext
     @Environment(\.dismiss) private var dismiss
     @AppStorage("baseCurrency") private var baseCurrency = "CAD"
+    @FetchRequest(
+        sortDescriptors: [],
+        predicate: NSPredicate(format: "isVerified == NO AND endTime != nil")
+    ) private var unverifiedOnlineSessions: FetchedResults<OnlineCash>
+    @FetchRequest(
+        sortDescriptors: [],
+        predicate: NSPredicate(format: "isVerified == NO AND endTime != nil")
+    ) private var unverifiedLiveSessions: FetchedResults<LiveCash>
 
     @State private var amountSent = ""
     @State private var amountReceived = ""
@@ -17,8 +27,12 @@ struct DepositFormView: View {
     @State private var showNegativeFeeWarning = false
     @State private var showLockConfirmation = false
     @State private var showProfitAlert = false
+    @State private var showUnverifiedSessionAlert = false
 
     var isSameCurrency: Bool { platform.displayCurrency == baseCurrency }
+    var hasUnverifiedSession: Bool {
+        !unverifiedOnlineSessions.isEmpty || !unverifiedLiveSessions.isEmpty
+    }
 
     // FX ON: effectiveRate = amountReceived(platform) / amountSent(base) — platform per base unit
     var computedEffectiveRate: Double {
@@ -90,6 +104,11 @@ struct DepositFormView: View {
             Button("Cancel", role: .cancel) {}
         } message: {
             Text("This deposit will be permanently saved and cannot be edited or deleted after confirmation. Are you sure?")
+        }
+        .alert("Unverified Session", isPresented: $showUnverifiedSessionAlert) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text("You have an unverified session. Please verify your previous session before recording a deposit.")
         }
     }
 
@@ -171,6 +190,10 @@ struct DepositFormView: View {
     var saveSection: some View {
         Section {
             Button {
+                guard !hasUnverifiedSession else {
+                    showUnverifiedSessionAlert = true
+                    return
+                }
                 if isProfitTransaction {
                     showProfitAlert = true
                 } else if !isSameCurrency && !isForeignExchange && processingFee < 0 {
@@ -220,8 +243,8 @@ struct DepositFormView: View {
 
         do {
             try viewContext.save()
-            viewContext.refreshAllObjects()
-            NotificationCenter.default.post(name: Notification.Name("platformDataChanged"), object: nil)
+            viewContext.refresh(platform, mergeChanges: true)
+            platform.objectWillChange.send()
             dismiss()
         } catch {
             print("Save deposit error: \(error)")

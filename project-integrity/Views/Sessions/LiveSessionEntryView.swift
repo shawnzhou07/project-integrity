@@ -1,3 +1,4 @@
+// Refer to UI_MASTER.md at project root before making UI changes.
 import SwiftUI
 import CoreData
 import Combine
@@ -49,6 +50,8 @@ struct LiveSessionEntryView: View {
     @State private var tableSize = 9
     @State private var buyIn = ""
     @State private var cashOut = ""
+    @State private var cashOutManuallyEdited = false
+    @State private var isAutoFillingCashOut = false
     @State private var tips = ""
     @State private var handsOverride = ""
     @State private var notes = ""
@@ -156,6 +159,12 @@ struct LiveSessionEntryView: View {
             }
             .onChange(of: buyInBaseStr) { _, _ in recalcRateFromAmounts(forBuyIn: true); autoSaveIfActive() }
             .onChange(of: cashOutBaseStr) { _, _ in recalcRateFromAmounts(forBuyIn: false); autoSaveIfActive() }
+            .onChange(of: buyIn) { _, newVal in
+                if !cashOutManuallyEdited {
+                    isAutoFillingCashOut = true
+                    cashOut = newVal
+                }
+            }
             .onReceive(timer) { t in if entryState == .active { tick = t } }
     }
 
@@ -385,6 +394,11 @@ struct LiveSessionEntryView: View {
                 Text(currency).font(.caption).foregroundColor(.appSecondary)
                 CurrencyInputField(text: $cashOut, width: 100)
                     .onChange(of: cashOut) { _, _ in
+                        if isAutoFillingCashOut {
+                            isAutoFillingCashOut = false
+                        } else {
+                            cashOutManuallyEdited = true
+                        }
                         if exchangeRateInputMode == "amounts" && exchangeRateCashOut > 0 {
                             cashOutBaseStr = String(format: "%.2f", cashOutDouble * exchangeRateCashOut)
                         }
@@ -685,6 +699,7 @@ struct LiveSessionEntryView: View {
         tableSize = Int(session.tableSize)
         buyIn = session.buyIn > 0 ? String(format: "%.2f", session.buyIn) : ""
         cashOut = session.cashOut > 0 ? String(format: "%.2f", session.cashOut) : ""
+        cashOutManuallyEdited = true
         tips = session.tips > 0 ? String(format: "%.2f", session.tips) : ""
         handsOverride = session.handsCount > 0 ? String(session.handsCount) : ""
         notes = session.notes ?? ""

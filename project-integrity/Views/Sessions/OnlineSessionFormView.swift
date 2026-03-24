@@ -1,3 +1,4 @@
+// Refer to UI_MASTER.md at project root before making UI changes.
 import SwiftUI
 import CoreData
 
@@ -402,7 +403,7 @@ struct OnlineSessionFormView: View {
         session.netProfitLoss = netPL
         session.exchangeRateToBase = selectedPlatform?.latestFXConversionRate ?? 1.0
         session.netProfitLossBase = netPLBase
-        session.handsCount = Int32(handsOverride) ?? 0
+        session.handsCount = Int32(handsOverride) ?? Int32(estimatedHands)
         session.notes = notes.isEmpty ? nil : notes
 
         do {

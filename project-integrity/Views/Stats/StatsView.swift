@@ -1,3 +1,4 @@
+// Refer to UI_MASTER.md at project root before making UI changes.
 import SwiftUI
 import CoreData
 
@@ -334,7 +335,13 @@ struct StatsView: View {
                     .background(Color.appSurface).cornerRadius(8)
             } else {
                 ForEach(Array(platforms)) { platform in
-                    PlatformBreakdownRow(platform: platform, baseCurrency: baseCurrency)
+                    NavigationLink {
+                        OnlinePlatformAnalyticsView(platform: platform)
+                            .environment(\.managedObjectContext, viewContext)
+                    } label: {
+                        PlatformBreakdownRow(platform: platform, baseCurrency: baseCurrency)
+                    }
+                    .buttonStyle(.plain)
                 }
             }
         }
@@ -392,6 +399,14 @@ struct PlatformBreakdownRow: View {
                     .foregroundColor(platform.netResult.profitColor)
                 Text("net result")
                     .font(.caption2).foregroundColor(.appSecondary)
+                HStack(spacing: 2) {
+                    Text("Analytics")
+                        .font(.caption2)
+                        .foregroundColor(.appGold)
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 9, weight: .semibold))
+                        .foregroundColor(.appGold)
+                }
             }
         }
         .padding().background(Color.appSurface).cornerRadius(8)

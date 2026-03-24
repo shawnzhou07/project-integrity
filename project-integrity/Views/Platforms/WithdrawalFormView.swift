@@ -1,11 +1,21 @@
+// Refer to UI_MASTER.md at project root before making UI changes.
 import SwiftUI
 import CoreData
+import Combine
 
 struct WithdrawalFormView: View {
     let platform: Platform
     @Environment(\.managedObjectContext) private var viewContext
     @Environment(\.dismiss) private var dismiss
     @AppStorage("baseCurrency") private var baseCurrency = "CAD"
+    @FetchRequest(
+        sortDescriptors: [],
+        predicate: NSPredicate(format: "isVerified == NO AND endTime != nil")
+    ) private var unverifiedOnlineSessions: FetchedResults<OnlineCash>
+    @FetchRequest(
+        sortDescriptors: [],
+        predicate: NSPredicate(format: "isVerified == NO AND endTime != nil")
+    ) private var unverifiedLiveSessions: FetchedResults<LiveCash>
     @AppStorage("exchangeRateInputMode") private var exchangeRateInputMode = "direct"
     @AppStorage("defaultRateUSDToBase") private var defaultRateUSDToBase = 1.36
     @AppStorage("defaultRateEURToBase") private var defaultRateEURToBase = 1.47
@@ -15,6 +25,7 @@ struct WithdrawalFormView: View {
     @State private var method = "E-Transfer"
     @State private var notes = ""
     @State private var showConfirmation = false
+    @State private var showUnverifiedSessionAlert = false
 
     @State private var alreadyReceived = false
     @State private var isForeignExchange = false
@@ -23,6 +34,9 @@ struct WithdrawalFormView: View {
     @State private var receivedDate = Date()
 
     var isSameCurrency: Bool { platform.displayCurrency == baseCurrency }
+    var hasUnverifiedSession: Bool {
+        !unverifiedOnlineSessions.isEmpty || !unverifiedLiveSessions.isEmpty
+    }
 
     var defaultRate: Double {
         switch platform.displayCurrency {
@@ -135,6 +149,11 @@ struct WithdrawalFormView: View {
             let requested = Double(amountRequested) ?? 0
             let statusText = alreadyReceived ? "received" : "pending"
             Text("Withdrawal of \(AppFormatter.currency(requested, code: platform.displayCurrency)) recorded as \(statusText).")
+        }
+        .alert("Unverified Session", isPresented: $showUnverifiedSessionAlert) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text("You have an unverified session. Please verify your previous session before recording a withdrawal.")
         }
     }
 
@@ -255,6 +274,10 @@ struct WithdrawalFormView: View {
     var saveSection: some View {
         Section {
             Button {
+                guard !hasUnverifiedSession else {
+                    showUnverifiedSessionAlert = true
+                    return
+                }
                 performSave()
             } label: {
                 Text("Save Withdrawal")
@@ -298,9 +321,7 @@ struct WithdrawalFormView: View {
         do {
             try viewContext.save()
             viewContext.refresh(platform, mergeChanges: true)
-            viewContext.refreshAllObjects()
-            NotificationCenter.default.post(name: Notification.Name("platformDataChanged"), object: nil)
-            NotificationCenter.default.post(name: Notification.Name("sessionVerified"), object: nil)
+            platform.objectWillChange.send()
             showConfirmation = true
         } catch {
             print("Save withdrawal error: \(error)")
