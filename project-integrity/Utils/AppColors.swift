@@ -66,3 +66,21 @@ extension View {
         }
     }
 }
+
+// MARK: - Smart Bottom Padding
+
+/// Returns the required bottom padding so floating UI never overlaps scroll content.
+///
+/// - Parameters:
+///   - isSessionActive: true when a live or online session is currently active.
+///   - isStatisticsScreen: true only on the Statistics screen, adds clearance for the two stacked FABs.
+///
+/// Base:    16 pt  — breathing room (tab bar handled by iOS safe area).
+/// Session: +68 pt — floating session bar (60 pt) + 8 pt gap above tab bar.
+/// FABs:  +140 pt  — two 56 pt buttons + 12 pt spacing + 16 pt gap (Stats screen only).
+func smartBottomPadding(isSessionActive: Bool, isStatisticsScreen: Bool = false) -> CGFloat {
+    var padding: CGFloat = 16
+    if isSessionActive    { padding += 68  }
+    if isStatisticsScreen { padding += 140 }
+    return padding
+}

@@ -144,7 +144,9 @@ struct OnlineSessionFormView: View {
     var platformSection: some View {
         Section {
             Button {
-                showPlatformPicker = true
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                    showPlatformPicker = true
+                }
             } label: {
                 HStack {
                     Text("Platform")
@@ -169,6 +171,7 @@ struct OnlineSessionFormView: View {
             PlatformPickerSheet(platforms: Array(platforms), selected: $selectedPlatform) {
                 showPlatformPicker = false
             }
+            .interactiveDismissDisabled(false)
         }
     }
 

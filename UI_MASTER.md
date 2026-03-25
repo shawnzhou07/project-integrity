@@ -124,6 +124,13 @@
 - Collapsible accordion sections, one open at a time
 - Section header: gold title left, chevron right rotating on expand
 - Active filter: gold dot beside section title + count badge
+- Default on open: nothing expanded (`openSection = nil`)
+- Top bar buttons: `Clear All` (left) + `Done` (right)
+- Clear All behavior: resets filters to defaults and collapses all sections
+- Default values do NOT count as filters:
+  - Date Range `All Time` is not counted
+  - Chart axis defaults (X: Sessions, Y: Net Result) are not counted as filters
+- Toolbar badge safety: badges must not clip when offset; use `frame(minWidth:minHeight:)` and add padding when needed
 
 ### Empty States
 - Large SF Symbol in gold at 48pt, opacity 0.6
@@ -205,6 +212,52 @@ The four summary metric cards at the top of `OnlinePlatformAnalyticsView` follow
 | $/100 | `"%.2f [currencyCode]"` — e.g. `12.50 CAD` |
 | BB/hour | `"%.1f BB"` — e.g. `83.1 BB` |
 | $/hour | `"%.2f [currencyCode]"` — e.g. `45.00 CAD` |
+
+---
+
+## Bottom Safe Area & Dead Space Rules
+
+Every scrollable screen must have sufficient bottom padding to prevent floating UI elements from overlapping content when fully scrolled down. This is mandatory for all screens.
+
+**Base rule:** all screens add bottom padding = 16 pt breathing room. The iOS tab bar and its safe area are handled automatically; do not add 49 pt or `safeAreaInsets.bottom` manually as this double-counts.
+
+**Floating session bar:** when an active session exists, the floating session bar appears above the tab bar at 60 pt height with an 8 pt gap. All screens must detect active session state (`startTime != nil AND endTime == nil`) and add an additional **68 pt** (60 pt bar + 8 pt gap) to bottom padding when a session is active. This padding is reactive — it animates with `.easeInOut(duration: 0.25)` as sessions start and end.
+
+**Statistics screen additional rule:** the two stacked floating action buttons (Charts + Calendar, 56 pt each, 12 pt spacing, 16 pt gap above tab bar or session bar) add an additional **140 pt** on top of the base padding. When a session is also active on the Statistics screen, both the session bar height (68 pt) and button stack height (140 pt) are added.
+
+**Shared implementation — use `smartBottomPadding` (defined in `Utils/AppColors.swift`):**
+
+```swift
+func smartBottomPadding(isSessionActive: Bool, isStatisticsScreen: Bool = false) -> CGFloat {
+    var padding: CGFloat = 16               // base breathing room
+    if isSessionActive    { padding += 68  } // session bar: 60 pt + 8 pt gap
+    if isStatisticsScreen { padding += 140 } // two FABs: 56+12+56 + 16 pt gap
+    return padding
+}
+```
+
+| Screen state | Padding |
+|---|---|
+| No session, no FABs | 16 pt |
+| Active session, no FABs | 84 pt |
+| No session, Statistics screen | 156 pt |
+| Active session, Statistics screen | 224 pt |
+
+**Apply as:**
+- ScrollView screens: `.padding(.bottom, smartBottomPadding(isSessionActive: hasActiveSession))` on the content VStack, plus `.animation(.easeInOut(duration: 0.25), value: hasActiveSession)`
+- List/Form screens: `.safeAreaInset(edge: .bottom) { Color.clear.frame(height: smartBottomPadding(isSessionActive: hasActiveSession)) }` plus `.animation(.easeInOut(duration: 0.25), value: hasActiveSession)`
+
+**Never hardcode bottom padding values.** Always call `smartBottomPadding`. Every view that needs this must add two `@FetchRequest` properties for active sessions:
+
+```swift
+@FetchRequest(sortDescriptors: [], predicate: NSPredicate(format: "startTime != nil AND endTime == nil"), animation: .default)
+private var activeLiveSessions: FetchedResults<LiveCash>
+
+@FetchRequest(sortDescriptors: [], predicate: NSPredicate(format: "startTime != nil AND endTime == nil"), animation: .default)
+private var activeOnlineSessions: FetchedResults<OnlineCash>
+
+private var hasActiveSession: Bool { !activeLiveSessions.isEmpty || !activeOnlineSessions.isEmpty }
+```
 
 ---
 

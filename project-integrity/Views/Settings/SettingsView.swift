@@ -211,6 +211,22 @@ struct SettingsView: View {
     @AppStorage("defaultRateUSDToBase") private var defaultRateUSDToBase = 1.36
     @AppStorage("defaultRateEURToBase") private var defaultRateEURToBase = 1.47
     @AppStorage("defaultRateUSDToEUR") private var defaultRateUSDToEUR = 0.92
+    @FetchRequest(
+        sortDescriptors: [],
+        predicate: NSPredicate(format: "startTime != nil AND endTime == nil"),
+        animation: .default
+    ) private var activeLiveSessions: FetchedResults<LiveCash>
+
+    @FetchRequest(
+        sortDescriptors: [],
+        predicate: NSPredicate(format: "startTime != nil AND endTime == nil"),
+        animation: .default
+    ) private var activeOnlineSessions: FetchedResults<OnlineCash>
+
+    private var hasActiveSession: Bool {
+        !activeLiveSessions.isEmpty || !activeOnlineSessions.isEmpty
+    }
+
     @State private var showResetConfirmation = false
     @State private var showTutorial = false
 
@@ -244,6 +260,10 @@ struct SettingsView: View {
             }
             .scrollContentBackground(.hidden)
             .background(Color.appBackground)
+            .safeAreaInset(edge: .bottom) {
+                Color.clear.frame(height: smartBottomPadding(isSessionActive: hasActiveSession))
+            }
+            .animation(.easeInOut(duration: 0.25), value: hasActiveSession)
         }
         .navigationTitle("Settings")
         .navigationBarTitleDisplayMode(.inline)

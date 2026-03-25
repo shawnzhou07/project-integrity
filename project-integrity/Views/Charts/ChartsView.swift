@@ -2,6 +2,22 @@
 import SwiftUI
 import CoreData
 import Charts
+import Combine
+
+// MARK: - Top-level enums
+
+enum ChartXAxis: String, CaseIterable {
+    case sessions = "Sessions"
+    case hoursPlayed = "Hours Played"
+    case handsPlayed = "Hands Played"
+}
+
+enum ChartYAxis: String, CaseIterable {
+    case netResult = "Net Result"
+    case hourlyRate = "Hourly Rate"
+    case bbWon = "BB Won"
+    case bbPer100 = "BB/100"
+}
 
 // MARK: - Chart point with full session context for tooltip
 
@@ -39,24 +55,26 @@ struct ChartsView: View {
     @FetchRequest(sortDescriptors: [NSSortDescriptor(keyPath: \Platform.name, ascending: true)])
     private var allPlatforms: FetchedResults<Platform>
 
-    enum XAxisOption: String, CaseIterable {
-        case sessions = "Sessions"
-        case hoursPlayed = "Hours Played"
-        case handsPlayed = "Hands Played"
+    @FetchRequest(
+        sortDescriptors: [],
+        predicate: NSPredicate(format: "startTime != nil AND endTime == nil"),
+        animation: .default
+    ) private var activeLiveSessions: FetchedResults<LiveCash>
+
+    @FetchRequest(
+        sortDescriptors: [],
+        predicate: NSPredicate(format: "startTime != nil AND endTime == nil"),
+        animation: .default
+    ) private var activeOnlineSessions: FetchedResults<OnlineCash>
+
+    private var hasActiveSession: Bool {
+        !activeLiveSessions.isEmpty || !activeOnlineSessions.isEmpty
     }
 
-    enum YAxisOption: String, CaseIterable {
-        case netResult = "Net Result"
-        case hourlyRate = "Hourly Rate"
-        case bbWon = "BB Won"
-        case bbPer100 = "BB/100"
-    }
-
-    @State private var xAxis: XAxisOption = .sessions
-    @State private var yAxis: YAxisOption = .netResult
-    @State private var selectedPointIndex: Int? = nil
-    @State private var selectedPointScreenPosition: CGPoint? = nil
-    @State private var chartPlotSize: CGSize? = nil
+    @State private var xAxis: ChartXAxis = .sessions
+    @State private var yAxis: ChartYAxis = .netResult
+    @State private var showFilterSheet = false
+    @State private var showFullscreen = false
     @State private var showStakesSheet = false
     @State private var showLocationSheet = false
     @State private var showPlatformSheet = false
@@ -64,12 +82,13 @@ struct ChartsView: View {
     private let goldColor = Color(hex: "#C9B47A")
     private let grayAxis = Color(hex: "#8A8A8A")
     private let gridColor = Color(hex: "#2A2A2A")
-    private let zeroLineColor = Color(hex: "#666666")
     private let cardBg = Color(hex: "#0D0D0D")
-    private let tooltipBg = Color(hex: "#1A1A1A")
-    private let dividerColor = Color(hex: "#2A2A2A")
 
-    // MARK: - Chart-filtered sessions (uses chartFilterState only)
+    var filterBadgeCount: Int {
+        chartFilterState.activeFilterCount
+    }
+
+    // MARK: - Chart-filtered sessions
 
     var chartFilteredSessions: [(session: Any, startTime: Date, durationHours: Double, netBase: Double, hands: Int, bbWon: Double, bbPer100: Double, isLive: Bool, locationOrPlatformName: String, gameType: String, blindsString: String)] {
         var list: [(Any, Date, Double, Double, Int, Double, Double, Bool, String, String, String)] = []
@@ -186,19 +205,9 @@ struct ChartsView: View {
     }
 
     var dataPointCount: Int { chartPoints.count }
-    var chartFiltersActive: Bool { chartFilterState.activeFilterCount > 0 }
     var xAxisTitle: String { xAxis.rawValue }
 
-    private func chartValueFormatted(_ value: Double) -> String {
-        switch yAxis {
-        case .netResult, .hourlyRate:
-            return AppFormatter.currencySigned(value, code: baseCurrency)
-        case .bbWon, .bbPer100:
-            return "\(AppFormatter.bbValue(value)) BB"
-        }
-    }
-
-    private var chartMetricTitle: String {
+    var chartMetricTitle: String {
         switch yAxis {
         case .netResult: return "Net Result (\(baseCurrency))"
         case .hourlyRate: return "Hourly Rate (\(baseCurrency)/hr)"
@@ -207,13 +216,317 @@ struct ChartsView: View {
         }
     }
 
-    private var yRangeCrossesZero: Bool {
-        guard !chartPoints.isEmpty else { return false }
-        let ys = chartPoints.map(\.y)
-        return (ys.min() ?? 0) <= 0 && (ys.max() ?? 0) >= 0
+    var totalChartValue: Double {
+        chartPoints.last?.y ?? 0
     }
 
-    /// Y scale domain (low...high) so positive values appear at top, negative at bottom.
+    // MARK: - Body
+
+    var body: some View {
+        ZStack {
+            Color.appBackground.ignoresSafeArea()
+            ScrollView {
+                VStack(spacing: 16) {
+                    compactChartCard
+                    axisConfigCard
+                }
+                .padding(.horizontal)
+                .padding(.top)
+                .padding(.bottom, smartBottomPadding(isSessionActive: hasActiveSession))
+                .animation(.easeInOut(duration: 0.25), value: hasActiveSession)
+            }
+        }
+        .navigationTitle("Charts")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .navigationBarTrailing) {
+                FilterNavBarButton(activeCount: filterBadgeCount) {
+                    showFilterSheet = true
+                }
+            }
+        }
+        .sheet(isPresented: $showFilterSheet) {
+            chartFilterSheet
+        }
+        .fullScreenCover(isPresented: $showFullscreen) {
+            FullscreenChartView(
+                chartPoints: chartPoints,
+                xAxis: xAxis,
+                yAxis: yAxis,
+                xAxisTitle: xAxisTitle,
+                chartMetricTitle: chartMetricTitle,
+                totalValue: totalChartValue,
+                baseCurrency: baseCurrency,
+                isPresented: $showFullscreen
+            )
+        }
+        .sheet(isPresented: $showStakesSheet) {
+            ChartStakesPickerSheet(selectedStakes: $chartFilterState.selectedStakes, options: uniqueStakesFromSessions)
+        }
+        .sheet(isPresented: $showLocationSheet) {
+            LocationPickerSheet(selectedLocation: Binding(
+                get: { chartFilterState.selectedLocationID.flatMap { id in allLocations.first { $0.id == id } } },
+                set: { chartFilterState.selectedLocationID = $0?.id }
+            ), onSelectNone: { chartFilterState.selectedLocationID = nil })
+            .environment(\.managedObjectContext, viewContext)
+        }
+        .sheet(isPresented: $showPlatformSheet) {
+            ChartPlatformPickerSheet(platforms: Array(allPlatforms), selectedPlatformID: $chartFilterState.selectedPlatformID)
+        }
+        .onAppear {
+            sanitizeChartFilters()
+        }
+        .onChange(of: allPlatforms.count) { _, _ in sanitizeChartFilters() }
+        .onChange(of: allLocations.count) { _, _ in sanitizeChartFilters() }
+        .onChange(of: liveSessions.count) { _, _ in sanitizeChartFilters() }
+        .onChange(of: onlineSessions.count) { _, _ in sanitizeChartFilters() }
+    }
+
+    private func sanitizeChartFilters() {
+        // If persisted IDs refer to deleted entities, clear them.
+        if let id = chartFilterState.selectedPlatformID,
+           !allPlatforms.contains(where: { $0.id == id }) {
+            chartFilterState.selectedPlatformID = nil
+        }
+        if let id = chartFilterState.selectedLocationID,
+           !allLocations.contains(where: { $0.id == id }) {
+            chartFilterState.selectedLocationID = nil
+        }
+        // If persisted stakes no longer exist, clear them so the chart doesn't go empty.
+        if !chartFilterState.selectedStakes.isEmpty {
+            let available = Set(uniqueStakesFromSessions)
+            if chartFilterState.selectedStakes.isDisjoint(with: available) {
+                chartFilterState.selectedStakes = []
+            }
+        }
+    }
+
+    private var hasAnySessionsIgnoringFilters: Bool {
+        !(liveSessions.isEmpty && onlineSessions.isEmpty)
+    }
+
+    private func clearAllChartFilters() {
+        chartFilterState.sessionType = .all
+        chartFilterState.dateRange = .allTime
+        chartFilterState.selectedStakes = []
+        chartFilterState.selectedLocationID = nil
+        chartFilterState.selectedPlatformID = nil
+    }
+
+    // MARK: - Compact chart card (tappable → fullscreen)
+
+    var compactChartCard: some View {
+        let cardHeight: CGFloat = 360
+        return ZStack(alignment: .topTrailing) {
+            VStack(spacing: 0) {
+                // Reserved dead-space so the expand icon never overlaps chart labels.
+                Color.clear.frame(height: 22)
+                Group {
+                    if chartPoints.isEmpty {
+                        emptyStateView
+                    } else {
+                        compactChartBody
+                            .animation(.easeInOut(duration: 0.4), value: xAxis)
+                            .animation(.easeInOut(duration: 0.4), value: yAxis)
+                            .animation(.easeInOut(duration: 0.4), value: chartFilterState.sessionType)
+                            .animation(.easeInOut(duration: 0.4), value: chartFilterState.dateRange)
+                            .animation(.easeInOut(duration: 0.4), value: chartFilterState.selectedStakes)
+                            .animation(.easeInOut(duration: 0.4), value: chartFilterState.selectedLocationID)
+                            .animation(.easeInOut(duration: 0.4), value: chartFilterState.selectedPlatformID)
+                    }
+                }
+            }
+
+            if !chartPoints.isEmpty {
+                Image(systemName: "arrow.up.left.and.arrow.down.right")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundColor(goldColor)
+                    .padding(.top, 6)
+                    .padding(.trailing, 6)
+            }
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity)
+        .frame(height: cardHeight)
+        .background(cardBg)
+        .cornerRadius(16)
+        .contentShape(Rectangle())
+        .onTapGesture {
+            if !chartPoints.isEmpty {
+                showFullscreen = true
+            }
+        }
+    }
+
+    // MARK: - Axis config (on-page)
+
+    var axisConfigCard: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            VStack(alignment: .leading, spacing: 10) {
+                Text("X Axis")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundColor(goldColor)
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 8) {
+                        ForEach(ChartXAxis.allCases, id: \.self) { option in
+                            axisPillButton(title: option.rawValue, isSelected: xAxis == option) {
+                                xAxis = option
+                            }
+                        }
+                    }
+                }
+            }
+
+            VStack(alignment: .leading, spacing: 10) {
+                Text("Y Axis")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundColor(goldColor)
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 8) {
+                        ForEach(ChartYAxis.allCases, id: \.self) { option in
+                            axisPillButton(title: option.rawValue, isSelected: yAxis == option) {
+                                yAxis = option
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        .padding(16)
+        .background(cardBg)
+        .cornerRadius(16)
+    }
+
+    // MARK: - Compact chart (no point selection overlay)
+
+    private var compactChartBody: some View {
+        let areaGradient = LinearGradient(
+            colors: [goldColor.opacity(0.2), Color.clear],
+            startPoint: .top,
+            endPoint: .bottom
+        )
+        let zeroLineDashStyle = StrokeStyle(lineWidth: 1, dash: [4, 4])
+        let yRangeCrossesZero = chartPoints.map(\.y).min().map { $0 <= 0 } == true &&
+                                 chartPoints.map(\.y).max().map { $0 >= 0 } == true
+
+        let baseChart = Chart {
+            if yRangeCrossesZero {
+                RuleMark(y: .value("Zero", 0))
+                    .foregroundStyle(Color(hex: "#555555"))
+                    .lineStyle(zeroLineDashStyle)
+            }
+            ForEach(chartPoints) { point in
+                LineMark(x: .value("X", point.x), y: .value("Y", point.y))
+                    .foregroundStyle(goldColor)
+                    .lineStyle(StrokeStyle(lineWidth: 2.5))
+                    .interpolationMethod(.catmullRom)
+                AreaMark(x: .value("X", point.x), y: .value("Y", point.y))
+                    .foregroundStyle(areaGradient)
+                    .interpolationMethod(.catmullRom)
+            }
+        }
+
+        let chartWithScale: AnyView
+        if let domain = yScaleDomain {
+            chartWithScale = AnyView(baseChart.chartYScale(domain: domain))
+        } else {
+            chartWithScale = AnyView(baseChart)
+        }
+
+        let dotted = StrokeStyle(lineWidth: 1, dash: [2, 4])
+        return chartWithScale
+            .chartXAxis {
+                AxisMarks(values: .automatic(desiredCount: 6)) { value in
+                    AxisGridLine(stroke: dotted)
+                        .foregroundStyle(Color(hex: "#1E1E1E"))
+                    AxisTick(stroke: dotted)
+                        .foregroundStyle(Color(hex: "#1E1E1E"))
+                    AxisValueLabel {
+                        if let v = value.as(Double.self) {
+                            Text(chartXAxisTickLabel(v))
+                                .foregroundStyle(grayAxis)
+                                .font(.system(size: 11))
+                        }
+                    }
+                }
+            }
+            .chartYAxis {
+                AxisMarks(position: .trailing, values: .automatic) { value in
+                    AxisGridLine(stroke: dotted)
+                        .foregroundStyle(Color(hex: "#1E1E1E"))
+                    AxisTick(stroke: dotted)
+                        .foregroundStyle(Color(hex: "#1E1E1E"))
+                    AxisValueLabel {
+                        if let v = value.as(Double.self) {
+                            Text(chartYAxisTickLabel(v))
+                                .foregroundStyle(grayAxis)
+                                .font(.system(size: 11))
+                        }
+                    }
+                }
+            }
+            .chartXAxisLabel(position: .bottom, alignment: .center) {
+                Text(xAxisLabelText)
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(grayAxis)
+                    .frame(maxWidth: .infinity, alignment: .center)
+            }
+    }
+
+    private var xAxisLabelText: String {
+        switch xAxis {
+        case .sessions: return "Sessions"
+        case .hoursPlayed: return "Hours Played"
+        case .handsPlayed: return "Hands Played"
+        }
+    }
+
+    private func chartXAxisTickLabel(_ value: Double) -> String {
+        switch xAxis {
+        case .sessions:
+            return "\(Int(value.rounded()))"
+        case .hoursPlayed:
+            return String(format: "%.0f", value)
+        case .handsPlayed:
+            return AppFormatter.handsCount(Int(value.rounded()))
+        }
+    }
+
+    // MARK: - Empty state
+
+    var emptyStateView: some View {
+        VStack(spacing: 0) {
+            Image(systemName: "chart.line.uptrend.xyaxis")
+                .font(.system(size: 48))
+                .foregroundColor(goldColor.opacity(0.6))
+            Text("No Sessions to Chart")
+                .font(.system(size: 17, weight: .semibold))
+                .foregroundColor(.white)
+                .padding(.top, 16)
+            if hasAnySessionsIgnoringFilters {
+                Text("Your current filters hide all sessions.")
+                    .font(.system(size: 14))
+                    .foregroundColor(grayAxis)
+                    .padding(.top, 6)
+
+                Button("Clear Filters") {
+                    clearAllChartFilters()
+                }
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundColor(goldColor)
+                .padding(.top, 10)
+            } else {
+                Text("Start logging sessions")
+                    .font(.system(size: 14))
+                    .foregroundColor(grayAxis)
+                    .padding(.top, 6)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    // MARK: - Y scale domain
+
     private var yScaleDomain: ClosedRange<Double>? {
         guard !chartPoints.isEmpty else { return nil }
         let ys = chartPoints.map(\.y)
@@ -223,7 +536,7 @@ struct ChartsView: View {
         let padding = span > 0 ? span * 0.05 : 1.0
         var yMin = low - padding
         var yMax = high + padding
-        if yRangeCrossesZero {
+        if (ys.min() ?? 0) <= 0 && (ys.max() ?? 0) >= 0 {
             if yMin > 0 { yMin = 0 }
             if yMax < 0 { yMax = 0 }
         }
@@ -239,78 +552,305 @@ struct ChartsView: View {
         }
     }
 
+    // MARK: - Filter sheet (chart filters)
+
+    var chartFilterSheet: some View {
+        NavigationStack {
+            ZStack {
+                Color.appBackground.ignoresSafeArea()
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 24) {
+                        // Chart Filters
+                        VStack(alignment: .leading, spacing: 0) {
+                            Text("Filters")
+                                .font(.system(size: 14, weight: .semibold))
+                                .foregroundColor(goldColor)
+                                .padding(.bottom, 12)
+
+                            filterRow(label: "Session Type") {
+                                Picker("Session Type", selection: $chartFilterState.sessionType) {
+                                    ForEach([ChartSessionType.all, .live, .online], id: \.self) { t in
+                                        Text(t.rawValue).tag(t)
+                                    }
+                                }
+                                .pickerStyle(.segmented)
+                                .frame(width: 180)
+                            }
+
+                            Divider().background(Color(hex: "#2A2A2A"))
+
+                            filterRow(label: "Date Range") {
+                                Picker("Date Range", selection: $chartFilterState.dateRange) {
+                                    ForEach(ChartDateRange.allCases, id: \.self) { r in
+                                        Text(r.rawValue).tag(r)
+                                    }
+                                }
+                                .pickerStyle(.menu)
+                                .tint(.appGold)
+                            }
+
+                            Divider().background(Color(hex: "#2A2A2A"))
+
+                            filterRow(label: "Stakes") {
+                                Button {
+                                    showStakesSheet = true
+                                } label: {
+                                    Text(stakesDisplayText)
+                                        .foregroundColor(.white)
+                                        .font(.subheadline)
+                                }
+                            }
+
+                            if chartFilterState.sessionType == .all || chartFilterState.sessionType == .live {
+                                Divider().background(Color(hex: "#2A2A2A"))
+                                filterRow(label: "Location") {
+                                    Button {
+                                        showLocationSheet = true
+                                    } label: {
+                                        Text(locationDisplayText)
+                                            .foregroundColor(.white)
+                                            .font(.subheadline)
+                                    }
+                                }
+                            }
+
+                            if chartFilterState.sessionType == .all || chartFilterState.sessionType == .online {
+                                Divider().background(Color(hex: "#2A2A2A"))
+                                filterRow(label: "Platform") {
+                                    Button {
+                                        showPlatformSheet = true
+                                    } label: {
+                                        Text(platformDisplayText)
+                                            .foregroundColor(.white)
+                                            .font(.subheadline)
+                                    }
+                                }
+                            }
+                        }
+                        .padding(16)
+                        .background(Color(hex: "#0D0D0D"))
+                        .cornerRadius(12)
+
+                        Divider().background(Color(hex: "#2A2A2A"))
+
+                        // Clear All
+                        Button("Clear All Filters") {
+                            chartFilterState.sessionType = .all
+                            chartFilterState.dateRange = .allTime
+                            chartFilterState.selectedStakes = []
+                            chartFilterState.selectedLocationID = nil
+                            chartFilterState.selectedPlatformID = nil
+                        }
+                        .foregroundColor(.red)
+                        .frame(maxWidth: .infinity, alignment: .center)
+                        .padding(.bottom, 8)
+                    }
+                    .padding()
+                }
+            }
+            .navigationTitle("Filters")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button {
+                        showFilterSheet = false
+                    } label: {
+                        Text("Apply")
+                            .fontWeight(.semibold)
+                            .foregroundColor(.black)
+                            .padding(.horizontal, 18)
+                            .padding(.vertical, 7)
+                            .background(goldColor)
+                            .cornerRadius(20)
+                    }
+                }
+            }
+        }
+        .presentationDetents([.medium, .large])
+    }
+
+    @ViewBuilder
+    private func axisPillButton(title: String, isSelected: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(title)
+                .font(.subheadline)
+                .foregroundColor(isSelected ? .black : Color(hex: "#8A8A8A"))
+                .padding(.horizontal, 14)
+                .padding(.vertical, 8)
+                .background(isSelected ? goldColor : Color(hex: "#1A1A1A"))
+                .cornerRadius(20)
+        }
+    }
+
+    @ViewBuilder
+    private func filterRow<Content: View>(label: String, @ViewBuilder content: () -> Content) -> some View {
+        HStack {
+            Text(label)
+                .font(.subheadline)
+                .foregroundColor(grayAxis)
+            Spacer()
+            content()
+        }
+        .padding(.vertical, 12)
+    }
+
+    // MARK: - Display text helpers
+
+    var stakesDisplayText: String {
+        if chartFilterState.selectedStakes.isEmpty { return "All Stakes" }
+        if chartFilterState.selectedStakes.count == 1 { return chartFilterState.selectedStakes.first! }
+        return "\(chartFilterState.selectedStakes.count) selected"
+    }
+
+    var locationDisplayText: String {
+        guard let id = chartFilterState.selectedLocationID,
+              let loc = allLocations.first(where: { $0.id == id }) else { return "All Locations" }
+        return loc.displayName
+    }
+
+    var platformDisplayText: String {
+        guard let id = chartFilterState.selectedPlatformID,
+              let plat = allPlatforms.first(where: { $0.id == id }) else { return "All Platforms" }
+        return plat.displayName
+    }
+}
+
+// MARK: - Fullscreen Chart View
+
+struct FullscreenChartView: View {
+    let chartPoints: [ChartPointData]
+    let xAxis: ChartXAxis
+    let yAxis: ChartYAxis
+    let xAxisTitle: String
+    let chartMetricTitle: String
+    let totalValue: Double
+    let baseCurrency: String
+    @Binding var isPresented: Bool
+
+    @State private var selectedPointIndex: Int? = nil
+    @State private var selectedPointScreenPosition: CGPoint? = nil
+    @State private var chartPlotSize: CGSize? = nil
+
+    private let goldColor = Color(hex: "#C9B47A")
+    private let grayAxis = Color(hex: "#8A8A8A")
+    private let tooltipBg = Color(hex: "#1A1A1A")
+    private let dividerColor = Color(hex: "#2A2A2A")
+
+    private func chartXAxisTickLabel(_ value: Double) -> String {
+        switch xAxis {
+        case .sessions:
+            return "\(Int(value.rounded()))"
+        case .hoursPlayed:
+            return String(format: "%.0f", value)
+        case .handsPlayed:
+            return AppFormatter.handsCount(Int(value.rounded()))
+        }
+    }
+
+    private var totalValueColor: Color {
+        if totalValue > 0 { return Color(hex: "#4CAF50") }
+        if totalValue < 0 { return Color(hex: "#F44336") }
+        return Color(hex: "#8A8A8A")
+    }
+
+    private var totalValueFormatted: String {
+        switch yAxis {
+        case .netResult, .hourlyRate:
+            return AppFormatter.currencySignedCompact(totalValue, code: baseCurrency) + (yAxis == .hourlyRate ? "/hr" : "")
+        case .bbWon, .bbPer100:
+            let absStr = AppFormatter.bbValue(Swift.abs(totalValue))
+            let sign = totalValue > 0 ? "+" : (totalValue < 0 ? "-" : "")
+            if yAxis == .bbPer100 {
+                return "\(sign)\(absStr) BB/100"
+            }
+            return "\(sign)\(absStr) BB"
+        }
+    }
+
     var body: some View {
         ZStack {
             Color.appBackground.ignoresSafeArea()
-            ScrollView {
-                VStack(spacing: 16) {
-                    chartCard
-                    statsBar
-                    configCard
-                    chartFiltersCard
+            VStack(spacing: 0) {
+                // Top bar
+                ZStack {
+                    HStack {
+                        Button {
+                            isPresented = false
+                        } label: {
+                            Image(systemName: "xmark")
+                                .font(.system(size: 16, weight: .medium))
+                                .foregroundColor(Color(hex: "#8A8A8A"))
+                                .frame(width: 36, height: 36)
+                                .background(Color(hex: "#1A1A1A"))
+                                .clipShape(Circle())
+                        }
+                        Spacer()
+                        Color.clear.frame(width: 36, height: 36)
+                    }
+
+                    VStack(spacing: 6) {
+                        Text(chartMetricTitle)
+                            .font(.system(size: 15, weight: .semibold))
+                            .foregroundColor(goldColor)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.85)
+
+                        Text(totalValueFormatted)
+                            .font(.system(size: 16, weight: .bold))
+                            .foregroundColor(totalValueColor)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.75)
+                    }
+                    .frame(maxWidth: .infinity)
                 }
-                .padding()
+                .padding(.horizontal, 16)
+                .padding(.vertical, 12)
+
+                // Fullscreen chart
+                if chartPoints.isEmpty {
+                    Spacer()
+                    VStack(spacing: 12) {
+                        Image(systemName: "chart.line.uptrend.xyaxis")
+                            .font(.system(size: 48))
+                            .foregroundColor(goldColor.opacity(0.6))
+                        Text("No Sessions to Chart")
+                            .font(.system(size: 17, weight: .semibold))
+                            .foregroundColor(.white)
+                    }
+                    Spacer()
+                } else {
+                    ZStack(alignment: .topLeading) {
+                        fullscreenChartBody
+                            .padding(.horizontal, 8)
+                            .animation(.easeInOut(duration: 0.4), value: xAxis)
+                            .animation(.easeInOut(duration: 0.4), value: yAxis)
+
+                        if let idx = selectedPointIndex, idx < chartPoints.count,
+                           let pos = selectedPointScreenPosition, let plotSize = chartPlotSize {
+                            tooltipView(for: chartPoints[idx], position: pos, plotSize: plotSize)
+                                .onTapGesture {
+                                    selectedPointIndex = nil
+                                    selectedPointScreenPosition = nil
+                                }
+                        }
+                    }
+                    .padding(.bottom, 16)
+                }
             }
         }
-        .navigationTitle("Charts")
-        .navigationBarTitleDisplayMode(.inline)
-        .sheet(isPresented: $showStakesSheet) {
-            ChartStakesPickerSheet(selectedStakes: $chartFilterState.selectedStakes, options: uniqueStakesFromSessions)
-        }
-        .sheet(isPresented: $showLocationSheet) {
-            LocationPickerSheet(selectedLocation: Binding(
-                get: { chartFilterState.selectedLocationID.flatMap { id in allLocations.first { $0.id == id } } },
-                set: { chartFilterState.selectedLocationID = $0?.id }
-            ), onSelectNone: { chartFilterState.selectedLocationID = nil })
-            .environment(\.managedObjectContext, viewContext)
-        }
-        .sheet(isPresented: $showPlatformSheet) {
-            ChartPlatformPickerSheet(platforms: Array(allPlatforms), selectedPlatformID: $chartFilterState.selectedPlatformID)
-        }
     }
 
-    // MARK: - Chart Card
+    // MARK: - Fullscreen chart with point interaction
 
-    var chartCard: some View {
-        Group {
-            if chartPoints.isEmpty {
-                emptyStateView
-            } else {
-                chartWithOverlay
-            }
-        }
-        .frame(height: 320)
-        .padding(16)
-        .frame(maxWidth: .infinity)
-        .background(cardBg)
-        .cornerRadius(16)
-    }
-
-    var emptyStateView: some View {
-        VStack(spacing: 0) {
-            Image(systemName: "chart.line.uptrend.xyaxis")
-                .font(.system(size: 48))
-                .foregroundColor(goldColor.opacity(0.6))
-            Text("No Sessions to Chart")
-                .font(.system(size: 17, weight: .semibold))
-                .foregroundColor(.white)
-                .padding(.top, 16)
-            Text("Start logging sessions to see your results here")
-                .font(.system(size: 14))
-                .foregroundColor(grayAxis)
-                .padding(.top, 6)
-        }
-        .frame(maxWidth: .infinity)
-        .frame(height: 320)
-    }
-
-    private var chartWithAxes: some View {
+    private var fullscreenChartBody: some View {
         let areaGradient = LinearGradient(
-            colors: [goldColor.opacity(0.3), Color.clear],
+            colors: [goldColor.opacity(0.2), Color.clear],
             startPoint: .top,
             endPoint: .bottom
         )
         let zeroLineDashStyle = StrokeStyle(lineWidth: 1, dash: [4, 4])
+        let ys = chartPoints.map(\.y)
+        let yRangeCrossesZero = (ys.min() ?? 0) <= 0 && (ys.max() ?? 0) >= 0
 
         let baseChart = Chart {
             if yRangeCrossesZero {
@@ -328,88 +868,129 @@ struct ChartsView: View {
                     .foregroundStyle(areaGradient)
                     .interpolationMethod(.catmullRom)
                 PointMark(x: .value("X", point.x), y: .value("Y", point.y))
-                    .foregroundStyle(goldColor)
-                    .symbolSize(isSelected ? 64 : 25)
+                    .foregroundStyle(isSelected ? Color.white : goldColor)
+                    .symbolSize(isSelected ? 80 : 25)
+                    .annotation(position: .overlay) {
+                        if isSelected {
+                            Circle()
+                                .stroke(Color.white, lineWidth: 2)
+                                .frame(width: 16, height: 16)
+                        }
+                    }
             }
         }
-        let chartWithYScale: some View = Group {
-            if let domain = yScaleDomain {
-                baseChart.chartYScale(domain: domain)
-            } else {
-                baseChart
-            }
+
+        let chartWithScale: AnyView
+        if let domain = yScaleDomain {
+            chartWithScale = AnyView(baseChart.chartYScale(domain: domain))
+        } else {
+            chartWithScale = AnyView(baseChart)
         }
-        return chartWithYScale
-        .chartXAxis {
-            AxisMarks(values: .automatic) { _ in
-                AxisGridLine(stroke: StrokeStyle(lineWidth: 0))
-                AxisValueLabel()
-                    .foregroundStyle(grayAxis)
-                    .font(.system(size: 11))
-            }
-        }
-        .chartYAxis {
-            AxisMarks(position: .leading, values: .automatic) { value in
-                AxisGridLine(stroke: StrokeStyle(lineWidth: 1))
-                    .foregroundStyle(Color(hex: "#1E1E1E"))
-                AxisValueLabel {
-                    if let v = value.as(Double.self) {
-                        Text(chartYAxisTickLabel(v))
-                            .foregroundStyle(grayAxis)
-                            .font(.system(size: 11))
-                    } else {
-                        Text("")
+
+        let dotted = StrokeStyle(lineWidth: 1, dash: [2, 4])
+        return chartWithScale
+            .chartXAxis {
+                AxisMarks(values: .automatic(desiredCount: 6)) { value in
+                    AxisGridLine(stroke: dotted)
+                        .foregroundStyle(Color(hex: "#1E1E1E"))
+                    AxisTick(stroke: dotted)
+                        .foregroundStyle(Color(hex: "#1E1E1E"))
+                    AxisValueLabel {
+                        if let v = value.as(Double.self) {
+                            Text(chartXAxisTickLabel(v))
+                                .foregroundStyle(grayAxis)
+                                .font(.system(size: 11))
+                        }
                     }
                 }
             }
-        }
-        .chartOverlay { proxy in
-            GeometryReader { geo in
-                chartOverlayContent(proxy: proxy, geo: geo)
-            }
-        }
-    }
-
-    private func chartOverlayContent(proxy: ChartProxy, geo: GeometryProxy) -> some View {
-        let frame: CGRect
-        if #available(iOS 17.0, *) {
-            frame = CGRect(origin: .zero, size: geo.size)
-        } else {
-            frame = geo[proxy.plotAreaFrame]
-        }
-        return ZStack(alignment: .trailing) {
-            Rectangle()
-                .fill(.clear)
-                .contentShape(Rectangle())
-                .onTapGesture { location in
-                    findNearestPoint(proxy: proxy, location: location, plotFrame: frame)
+            .chartYAxis {
+                AxisMarks(position: .trailing, values: .automatic) { value in
+                    AxisGridLine(stroke: dotted)
+                        .foregroundStyle(Color(hex: "#1E1E1E"))
+                    AxisTick(stroke: dotted)
+                        .foregroundStyle(Color(hex: "#1E1E1E"))
+                    AxisValueLabel {
+                        if let v = value.as(Double.self) {
+                            Text(chartYAxisTickLabel(v))
+                                .foregroundStyle(grayAxis)
+                                .font(.system(size: 11))
+                        }
+                    }
                 }
-        }
-        .onAppear {
-            chartPlotSize = CGSize(width: frame.width, height: frame.height)
-        }
-        .onChange(of: chartPoints.count) { _, _ in
-            chartPlotSize = CGSize(width: frame.width, height: frame.height)
-        }
+            }
+            .chartXAxisLabel(position: .bottom, alignment: .center) {
+                Text(xAxisTitle)
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(grayAxis)
+                    .frame(maxWidth: .infinity, alignment: .center)
+            }
+            .chartOverlay { proxy in
+                GeometryReader { geo in
+                    let frame: CGRect = {
+                        if #available(iOS 17.0, *) {
+                            return CGRect(origin: .zero, size: geo.size)
+                        }
+                        return geo[proxy.plotAreaFrame]
+                    }()
+                    Rectangle()
+                        .fill(.clear)
+                        .contentShape(Rectangle())
+                        .onTapGesture { location in
+                            findNearestPoint(proxy: proxy, location: location, plotFrame: frame)
+                        }
+                        .onAppear {
+                            chartPlotSize = CGSize(width: frame.width, height: frame.height)
+                        }
+                        .onChange(of: chartPoints.count) { _, _ in
+                            chartPlotSize = CGSize(width: frame.width, height: frame.height)
+                        }
+                    // Vertical rule for selected point
+                    if let idx = selectedPointIndex, idx < chartPoints.count,
+                       let posX = proxy.position(forX: chartPoints[idx].x) {
+                        Rectangle()
+                            .fill(Color(hex: "#3A3A3A"))
+                            .frame(width: 1.5)
+                            .frame(maxHeight: .infinity)
+                            .offset(x: posX)
+                            .allowsHitTesting(false)
+                    }
+                    // Horizontal rule for selected point
+                    if let idx = selectedPointIndex, idx < chartPoints.count,
+                       let posY = proxy.position(forY: chartPoints[idx].y) {
+                        Rectangle()
+                            .fill(Color(hex: "#3A3A3A"))
+                            .frame(height: 1.5)
+                            .frame(maxWidth: .infinity)
+                            .offset(y: posY)
+                            .allowsHitTesting(false)
+                    }
+                }
+            }
     }
 
-    var chartWithOverlay: some View {
-        let chart = chartWithAxes
+    private var yScaleDomain: ClosedRange<Double>? {
+        guard !chartPoints.isEmpty else { return nil }
+        let ys = chartPoints.map(\.y)
+        let low = ys.min() ?? 0
+        let high = ys.max() ?? 0
+        let span = high - low
+        let padding = span > 0 ? span * 0.05 : 1.0
+        var yMin = low - padding
+        var yMax = high + padding
+        if low <= 0 && high >= 0 {
+            if yMin > 0 { yMin = 0 }
+            if yMax < 0 { yMax = 0 }
+        }
+        return yMin ... yMax
+    }
 
-        return ZStack(alignment: .topLeading) {
-            chart
-                .animation(.easeInOut(duration: 0.4), value: xAxis)
-                .animation(.easeInOut(duration: 0.4), value: yAxis)
-                .animation(.easeInOut(duration: 0.4), value: chartFilterState.sessionType)
-                .animation(.easeInOut(duration: 0.4), value: chartFilterState.dateRange)
-                .animation(.easeInOut(duration: 0.4), value: chartFilterState.selectedStakes)
-                .animation(.easeInOut(duration: 0.4), value: chartFilterState.selectedLocationID)
-                .animation(.easeInOut(duration: 0.4), value: chartFilterState.selectedPlatformID)
-
-            if let idx = selectedPointIndex, idx < chartPoints.count, let pos = selectedPointScreenPosition, let plotSize = chartPlotSize {
-                tooltipView(for: chartPoints[idx], position: pos, plotSize: plotSize)
-                    .onTapGesture { selectedPointIndex = nil; selectedPointScreenPosition = nil }
-            }
+    private func chartYAxisTickLabel(_ value: Double) -> String {
+        switch yAxis {
+        case .netResult, .hourlyRate:
+            return AppFormatter.currencyCompact(value, code: baseCurrency)
+        case .bbWon, .bbPer100:
+            return "\(AppFormatter.bbValue(value)) BB"
         }
     }
 
@@ -428,8 +1009,7 @@ struct ChartsView: View {
                 hitPos = pos
             }
         }
-        let hitThreshold: CGFloat = 44
-        if let n = nearest, minDist < hitThreshold {
+        if let n = nearest, minDist < 44 {
             if selectedPointIndex == n {
                 selectedPointIndex = nil
                 selectedPointScreenPosition = nil
@@ -446,67 +1026,66 @@ struct ChartsView: View {
     private func tooltipView(for point: ChartPointData, position: CGPoint, plotSize: CGSize) -> some View {
         let isLowerHalf = position.y > plotSize.height / 2
         let isLeftSide = position.x < plotSize.width * 0.4
-        let tooltipW: CGFloat = 240
-        let tooltipH: CGFloat = 200
+        let tooltipW: CGFloat = 220
+        let tooltipH: CGFloat = 180
         let pad: CGFloat = 8
-        let xOffset: CGFloat = isLeftSide ? 0 : -tooltipW
+        let xOffset: CGFloat = isLeftSide ? 16 : -tooltipW - 16
         let yOffset: CGFloat = isLowerHalf ? -tooltipH - 12 : 12
         let rawX = position.x + xOffset
         let rawY = position.y + yOffset
         let xClamp = min(max(rawX, pad), plotSize.width - tooltipW - pad)
-        let yClamp2 = min(max(rawY, pad), plotSize.height - tooltipH - pad)
+        let yClamp = min(max(rawY, pad), plotSize.height - tooltipH - pad)
 
-        return VStack(alignment: .leading, spacing: 10) {
-            // Date
-            VStack(alignment: .leading, spacing: 2) {
-                Text("Date")
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundColor(grayAxis)
-                Text(AppFormatter.longDate(point.startTime))
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundColor(goldColor)
+        let yVal = chartValueFormatted(point.y)
+        let yColor = chartValueColor(point.y)
+
+        return VStack(alignment: .leading, spacing: 6) {
+            Text(AppFormatter.longDate(point.startTime))
+                .font(.system(size: 13))
+                .foregroundColor(goldColor)
+
+            Text(yVal)
+                .font(.system(size: 20, weight: .bold))
+                .foregroundColor(yColor)
+
+            Text(xAxisContextString(point))
+                .font(.system(size: 12))
+                .foregroundColor(Color(hex: "#8A8A8A"))
+
+            if point.durationHours > 0 || point.hands > 0 {
+                HStack(spacing: 8) {
+                    if point.durationHours > 0 {
+                        Text(AppFormatter.duration(point.durationHours))
+                            .font(.system(size: 12))
+                            .foregroundColor(Color(hex: "#8A8A8A"))
+                    }
+                    if point.hands > 0 {
+                        Text("\(point.hands) hands")
+                            .font(.system(size: 12))
+                            .foregroundColor(Color(hex: "#8A8A8A"))
+                    }
+                }
             }
-            Divider().background(dividerColor)
-            // X axis
-            VStack(alignment: .leading, spacing: 2) {
-                Text(xAxisTitle)
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundColor(grayAxis)
-                Text(xAxisValueString(point))
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundColor(.white)
+
+            if !point.blindsString.isEmpty {
+                Text("\(point.gameType) · \(point.blindsString)")
+                    .font(.system(size: 12))
+                    .foregroundColor(Color(hex: "#8A8A8A"))
             }
-            Divider().background(dividerColor)
-            // Y axis
-            VStack(alignment: .leading, spacing: 2) {
-                Text(chartMetricTitle)
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundColor(grayAxis)
-                Text(chartValueFormatted(point.y))
-                    .font(.system(size: 15, weight: .bold))
-                    .foregroundColor(chartValueColor(point.y))
-            }
-            Divider().background(dividerColor)
-            Text(point.isLive ? "Live · \(point.locationOrPlatformName)" : "Online · \(point.locationOrPlatformName)")
-                .font(.system(size: 11))
-                .foregroundColor(grayAxis)
         }
-        .padding(14)
-        .frame(minWidth: 200, alignment: .leading)
+        .padding(12)
         .background(tooltipBg)
         .cornerRadius(12)
-        .shadow(radius: 10)
-        .offset(x: xClamp, y: yClamp2)
+        .shadow(radius: 8)
+        .offset(x: xClamp, y: yClamp)
     }
 
-    private func xAxisValueString(_ point: ChartPointData) -> String {
-        switch xAxis {
-        case .sessions: return "Session \(point.sessionIndex)"
-        case .hoursPlayed: return String(format: "%.1f hrs", point.x)
-        case .handsPlayed:
-            let nf = NumberFormatter()
-            nf.numberStyle = .decimal
-            return nf.string(from: NSNumber(value: point.x)) ?? "\(Int(point.x)) hands"
+    private func chartValueFormatted(_ value: Double) -> String {
+        switch yAxis {
+        case .netResult, .hourlyRate:
+            return AppFormatter.currencySigned(value, code: baseCurrency)
+        case .bbWon, .bbPer100:
+            return "\(AppFormatter.bbValue(value)) BB"
         }
     }
 
@@ -514,7 +1093,7 @@ struct ChartsView: View {
         if yAxis == .bbWon || yAxis == .bbPer100 { return .white }
         if value > 0 { return Color(hex: "#4CAF50") }
         if value < 0 { return Color(hex: "#F44336") }
-        return grayAxis
+        return Color(hex: "#8A8A8A")
     }
 
     private func xAxisContextString(_ point: ChartPointData) -> String {
@@ -527,167 +1106,6 @@ struct ChartsView: View {
             let str = nf.string(from: NSNumber(value: point.x)) ?? "\(Int(point.x))"
             return "\(str) hands played"
         }
-    }
-
-    var statsBar: some View {
-        HStack {
-            Text("\(dataPointCount) sessions")
-                .font(.system(size: 12))
-                .foregroundColor(grayAxis)
-            Spacer()
-            Text(chartMetricTitle)
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundColor(goldColor)
-            Spacer()
-            if chartFiltersActive {
-                HStack(spacing: 4) {
-                    Circle().fill(goldColor).frame(width: 6, height: 6)
-                    Text("Filtered")
-                        .font(.system(size: 12))
-                        .foregroundColor(grayAxis)
-                }
-            }
-        }
-        .padding(.horizontal, 16)
-    }
-
-    var configCard: some View {
-        VStack(spacing: 0) {
-            HStack {
-                Text("X Axis").font(.subheadline).foregroundColor(grayAxis)
-                Spacer()
-                Picker("X Axis", selection: $xAxis) {
-                    ForEach(XAxisOption.allCases, id: \.self) { Text($0.rawValue).tag($0) }
-                }
-                .pickerStyle(.menu).tint(.appGold)
-            }
-            .padding(16)
-            Divider().background(gridColor)
-            HStack {
-                Text("Y Axis").font(.subheadline).foregroundColor(grayAxis)
-                Spacer()
-                Picker("Y Axis", selection: $yAxis) {
-                    ForEach(YAxisOption.allCases, id: \.self) { Text($0.rawValue).tag($0) }
-                }
-                .pickerStyle(.menu).tint(.appGold)
-            }
-            .padding(16)
-        }
-        .frame(maxWidth: .infinity)
-        .background(cardBg)
-        .cornerRadius(16)
-    }
-
-    // MARK: - Chart Filters Card
-
-    var chartFiltersCard: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(spacing: 6) {
-                Text("Chart Filters")
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundColor(goldColor)
-                if chartFiltersActive {
-                    Circle().fill(goldColor).frame(width: 6, height: 6)
-                    Text("\(chartFilterState.activeFilterCount)")
-                        .font(.caption2)
-                        .fontWeight(.semibold)
-                        .foregroundColor(.black)
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 2)
-                        .background(goldColor)
-                        .cornerRadius(8)
-                }
-            }
-            VStack(spacing: 0) {
-                HStack {
-                    Text("Session Type").font(.subheadline).foregroundColor(grayAxis)
-                    Spacer()
-                    Picker("Session Type", selection: $chartFilterState.sessionType) {
-                        ForEach([ChartSessionType.all, .live, .online], id: \.self) { t in
-                            Text(t.rawValue).tag(t)
-                        }
-                    }
-                    .pickerStyle(.segmented)
-                    .frame(width: 180)
-                }
-                .padding(.vertical, 12)
-                Divider().background(gridColor)
-                HStack {
-                    Text("Stakes").font(.subheadline).foregroundColor(grayAxis)
-                    Spacer()
-                    Button {
-                        showStakesSheet = true
-                    } label: {
-                        Text(stakesDisplayText)
-                            .foregroundColor(.white)
-                    }
-                }
-                .padding(.vertical, 12)
-                Divider().background(gridColor)
-                if chartFilterState.sessionType == .all || chartFilterState.sessionType == .live {
-                    HStack {
-                        Text("Location").font(.subheadline).foregroundColor(grayAxis)
-                        Spacer()
-                        Button {
-                            showLocationSheet = true
-                        } label: {
-                            Text(locationDisplayText)
-                                .foregroundColor(.white)
-                        }
-                    }
-                    .padding(.vertical, 12)
-                    Divider().background(gridColor)
-                }
-                if chartFilterState.sessionType == .all || chartFilterState.sessionType == .online {
-                    HStack {
-                        Text("Platform").font(.subheadline).foregroundColor(grayAxis)
-                        Spacer()
-                        Button {
-                            showPlatformSheet = true
-                        } label: {
-                            Text(platformDisplayText)
-                                .foregroundColor(.white)
-                        }
-                    }
-                    .padding(.vertical, 12)
-                    Divider().background(gridColor)
-                }
-                HStack {
-                    Text("Date Range").font(.subheadline).foregroundColor(grayAxis)
-                    Spacer()
-                    Picker("Date Range", selection: $chartFilterState.dateRange) {
-                        ForEach(ChartDateRange.allCases, id: \.self) { r in
-                            Text(r.rawValue).tag(r)
-                        }
-                    }
-                    .pickerStyle(.menu).tint(.appGold)
-                }
-                .padding(.vertical, 12)
-            }
-        }
-        .padding(16)
-        .frame(maxWidth: .infinity)
-        .background(cardBg)
-        .cornerRadius(16)
-        .animation(.easeInOut(duration: 0.4), value: chartFilterState.sessionType)
-    }
-
-    var stakesDisplayText: String {
-        if chartFilterState.selectedStakes.isEmpty { return "All Stakes" }
-        if chartFilterState.selectedStakes.count == 1 { return chartFilterState.selectedStakes.first! }
-        return "\(chartFilterState.selectedStakes.count) selected"
-    }
-
-    var locationDisplayText: String {
-        guard let id = chartFilterState.selectedLocationID,
-              let loc = allLocations.first(where: { $0.id == id }) else { return "All Locations" }
-        return loc.displayName
-    }
-
-    var platformDisplayText: String {
-        guard let id = chartFilterState.selectedPlatformID,
-              let plat = allPlatforms.first(where: { $0.id == id }) else { return "All Platforms" }
-        return plat.displayName
     }
 }
 

@@ -326,7 +326,11 @@ struct OnlineSessionEntryView: View {
 
     var platformSection: some View {
         Section {
-            Button { showPlatformPicker = true } label: {
+            Button {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                    showPlatformPicker = true
+                }
+            } label: {
                 HStack {
                     Text("Platform").foregroundColor(.appPrimary)
                     Spacer()
@@ -353,6 +357,7 @@ struct OnlineSessionEntryView: View {
                 autoSaveIfActive()
                 showPlatformPicker = false
             }
+            .interactiveDismissDisabled(false)
         }
     }
 

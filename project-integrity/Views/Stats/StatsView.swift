@@ -76,7 +76,10 @@ struct StatsView: View {
                     resultsSection
                     platformBreakdown
                 }
-                .padding()
+                .padding(.horizontal)
+                .padding(.top)
+                .padding(.bottom, smartBottomPadding(isSessionActive: hasActiveSession, isStatisticsScreen: true))
+                .animation(.easeInOut(duration: 0.25), value: hasActiveSession)
             }
             .refreshable {
                 await performRefresh()
@@ -335,13 +338,48 @@ struct StatsView: View {
                     .background(Color.appSurface).cornerRadius(8)
             } else {
                 ForEach(Array(platforms)) { platform in
-                    NavigationLink {
-                        OnlinePlatformAnalyticsView(platform: platform)
-                            .environment(\.managedObjectContext, viewContext)
-                    } label: {
-                        PlatformBreakdownRow(platform: platform, baseCurrency: baseCurrency)
+                    HStack(spacing: 0) {
+                        NavigationLink {
+                            PlatformDetailView(platform: platform)
+                                .environment(\.managedObjectContext, viewContext)
+                        } label: {
+                            HStack {
+                                VStack(alignment: .leading, spacing: 3) {
+                                    Text(platform.displayName)
+                                        .font(.system(size: 15, weight: .semibold))
+                                        .foregroundColor(.white)
+                                    Text(AppFormatter.currencySigned(platform.netResult))
+                                        .font(.system(size: 14, weight: .medium))
+                                        .foregroundColor(platform.netResult.profitColor)
+                                }
+                                Spacer()
+                            }
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+
+                        NavigationLink {
+                            OnlinePlatformAnalyticsView(platform: platform)
+                                .environment(\.managedObjectContext, viewContext)
+                        } label: {
+                            HStack(spacing: 4) {
+                                Text("Analytics")
+                                    .font(.system(size: 13, weight: .medium))
+                                    .foregroundColor(Color(hex: "#C9B47A"))
+                                Image(systemName: "chevron.right")
+                                    .font(.system(size: 11, weight: .medium))
+                                    .foregroundColor(Color(hex: "#C9B47A"))
+                            }
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 6)
+                            .background(Color(hex: "#1A1A1A"))
+                            .cornerRadius(8)
+                        }
+                        .buttonStyle(.plain)
                     }
-                    .buttonStyle(.plain)
+                    .padding()
+                    .background(Color.appSurface)
+                    .cornerRadius(8)
                 }
             }
         }
@@ -375,43 +413,6 @@ struct StatCard: View {
     }
 }
 
-struct PlatformBreakdownRow: View {
-    let platform: Platform
-    let baseCurrency: String
-
-    var body: some View {
-        HStack {
-            VStack(alignment: .leading, spacing: 4) {
-                Text(platform.displayName)
-                    .font(.subheadline).fontWeight(.medium).foregroundColor(.appPrimary)
-                HStack(spacing: 8) {
-                    Text("Balance: \(AppFormatter.currency(platform.currentBalance, code: platform.displayCurrency))")
-                        .font(.caption).foregroundColor(.appSecondary)
-                    Text("·").foregroundColor(.appBorder)
-                    Text("\(platform.onlineSessionsArray.count) sessions")
-                        .font(.caption).foregroundColor(.appSecondary)
-                }
-            }
-            Spacer()
-            VStack(alignment: .trailing, spacing: 4) {
-                Text(AppFormatter.currencySigned(platform.netResult))
-                    .font(.subheadline).fontWeight(.semibold)
-                    .foregroundColor(platform.netResult.profitColor)
-                Text("net result")
-                    .font(.caption2).foregroundColor(.appSecondary)
-                HStack(spacing: 2) {
-                    Text("Analytics")
-                        .font(.caption2)
-                        .foregroundColor(.appGold)
-                    Image(systemName: "chevron.right")
-                        .font(.system(size: 9, weight: .semibold))
-                        .foregroundColor(.appGold)
-                }
-            }
-        }
-        .padding().background(Color.appSurface).cornerRadius(8)
-    }
-}
 
 #Preview {
     StatsView()

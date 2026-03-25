@@ -23,6 +23,13 @@ enum AnalyticsAxis: String, CaseIterable {
     }
 }
 
+// MARK: - Metric Mode
+
+enum MetricMode: String, CaseIterable {
+    case bb = "BB"
+    case dollar = "$"
+}
+
 // MARK: - Date Range Filter
 
 enum AnalyticsDateRange: String, CaseIterable {
@@ -161,6 +168,21 @@ class OnlineAnalyticsFilterState: ObservableObject {
         selectedDurations = Set(DurationBucket.allCases)
         selectedTables = Set(["1", "2", "3", "4+"])
     }
+
+    func clearFilterForAxis(_ axis: AnalyticsAxis) {
+        switch axis {
+        case .stakes:
+            selectedStakes = Set(allStakes)
+        case .timeOfDay:
+            selectedTimesOfDay = Set(["Morning", "Afternoon", "Evening", "Night"])
+        case .dayOfWeek:
+            selectedDaysOfWeek = Set(["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"])
+        case .sessionDuration:
+            selectedDurations = Set(DurationBucket.allCases)
+        case .tablesPlayed:
+            selectedTables = Set(["1", "2", "3", "4+"])
+        }
+    }
 }
 
 // MARK: - Main View
@@ -172,9 +194,26 @@ struct OnlinePlatformAnalyticsView: View {
 
     @StateObject private var filterState = OnlineAnalyticsFilterState()
     @State private var selectedAxis: AnalyticsAxis = .stakes
+    @State private var metricMode: MetricMode = .bb
     @State private var showFilterSheet = false
     @State private var allSessions: [OnlineCash] = []
     @State private var refreshID = UUID()
+
+    @FetchRequest(
+        sortDescriptors: [],
+        predicate: NSPredicate(format: "startTime != nil AND endTime == nil"),
+        animation: .default
+    ) private var activeLiveSessions: FetchedResults<LiveCash>
+
+    @FetchRequest(
+        sortDescriptors: [],
+        predicate: NSPredicate(format: "startTime != nil AND endTime == nil"),
+        animation: .default
+    ) private var activeOnlineSessions: FetchedResults<OnlineCash>
+
+    private var hasActiveSession: Bool {
+        !activeLiveSessions.isEmpty || !activeOnlineSessions.isEmpty
+    }
 
     // MARK: Filtered + Grouped
 
@@ -292,7 +331,7 @@ struct OnlinePlatformAnalyticsView: View {
             }
         }
         .sheet(isPresented: $showFilterSheet) {
-            AnalyticsFilterSheet(filterState: filterState)
+            AnalyticsFilterSheet(filterState: filterState, primaryAxis: selectedAxis)
         }
         .onAppear { loadSessions() }
         .id(refreshID)
@@ -302,16 +341,36 @@ struct OnlinePlatformAnalyticsView: View {
         ScrollView {
             VStack(spacing: 16) {
                 overviewCard
+                metricToggle
                 axisPicker
                 activeFilterChips
                 breakdownTable
             }
-            .padding()
+            .padding(.horizontal)
+            .padding(.top)
+            .padding(.bottom, smartBottomPadding(isSessionActive: hasActiveSession))
+            .animation(.easeInOut(duration: 0.25), value: hasActiveSession)
         }
         .refreshable {
             loadSessions()
             refreshID = UUID()
         }
+    }
+
+    // MARK: - BB/$ Toggle
+
+    var metricToggle: some View {
+        Picker("Metric", selection: $metricMode) {
+            ForEach(MetricMode.allCases, id: \.self) { mode in
+                Text(mode.rawValue).tag(mode)
+            }
+        }
+        .pickerStyle(.segmented)
+        .tint(.appGold)
+        .animation(.none, value: metricMode)
+        .padding(12)
+        .background(Color(hex: "#0D0D0D"))
+        .cornerRadius(12)
     }
 
     // MARK: - Summary Cards
@@ -336,31 +395,34 @@ struct OnlinePlatformAnalyticsView: View {
         let s = summaryStats
         let noHands = s.hands == 0
         return VStack(spacing: 10) {
-            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 10) {
-                SummaryMetricCard(
-                    label: "BB/100",
-                    value: s.bb100.map { String(format: "%.1f BB", $0) },
-                    isPositive: s.bb100.map { $0 > 0 },
-                    isNegative: s.bb100.map { $0 < 0 }
-                )
-                SummaryMetricCard(
-                    label: "$/100",
-                    value: s.dollar100.map { String(format: "%.2f \(baseCurrency)", $0) },
-                    isPositive: s.dollar100.map { $0 > 0 },
-                    isNegative: s.dollar100.map { $0 < 0 }
-                )
-                SummaryMetricCard(
-                    label: "BB/hour",
-                    value: s.bbHour.map { String(format: "%.1f BB", $0) },
-                    isPositive: s.bbHour.map { $0 > 0 },
-                    isNegative: s.bbHour.map { $0 < 0 }
-                )
-                SummaryMetricCard(
-                    label: "$/hour",
-                    value: s.dollarHour.map { String(format: "%.2f \(baseCurrency)", $0) },
-                    isPositive: s.dollarHour.map { $0 > 0 },
-                    isNegative: s.dollarHour.map { $0 < 0 }
-                )
+            HStack(spacing: 10) {
+                if metricMode == .bb {
+                    SummaryMetricCard(
+                        label: "BB/100",
+                        value: s.bb100.map { String(format: "%.1f BB", $0) },
+                        isPositive: s.bb100.map { $0 > 0 },
+                        isNegative: s.bb100.map { $0 < 0 }
+                    )
+                    SummaryMetricCard(
+                        label: "BB/hour",
+                        value: s.bbHour.map { String(format: "%.1f BB", $0) },
+                        isPositive: s.bbHour.map { $0 > 0 },
+                        isNegative: s.bbHour.map { $0 < 0 }
+                    )
+                } else {
+                    SummaryMetricCard(
+                        label: "$/100",
+                        value: s.dollar100.map { String(format: "%.2f \(baseCurrency)", $0) },
+                        isPositive: s.dollar100.map { $0 > 0 },
+                        isNegative: s.dollar100.map { $0 < 0 }
+                    )
+                    SummaryMetricCard(
+                        label: "$/hour",
+                        value: s.dollarHour.map { String(format: "%.2f \(baseCurrency)", $0) },
+                        isPositive: s.dollarHour.map { $0 > 0 },
+                        isNegative: s.dollarHour.map { $0 < 0 }
+                    )
+                }
             }
             if noHands && !filteredSessions.isEmpty {
                 Text("Enter hands played in sessions to see BB metrics.")
@@ -389,6 +451,7 @@ struct OnlinePlatformAnalyticsView: View {
                 ForEach(AnalyticsAxis.allCases, id: \.self) { axis in
                     Button {
                         selectedAxis = axis
+                        filterState.clearFilterForAxis(axis)
                     } label: {
                         Text(axis.rawValue)
                             .font(.subheadline)
@@ -444,19 +507,32 @@ struct OnlinePlatformAnalyticsView: View {
             // Header
             HStack(spacing: 0) {
                 Text(selectedAxis.columnLabel)
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundColor(.appGold)
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundColor(Color(hex: "#8A8A8A"))
                     .frame(maxWidth: .infinity, alignment: .leading)
-                ForEach(["BB/100", "$/100", "BB/hr", "$/hr"], id: \.self) { header in
-                    Text(header)
-                        .font(.system(size: 11))
-                        .foregroundColor(.appSecondary)
-                        .frame(width: 52, alignment: .trailing)
+                if metricMode == .bb {
+                    Text("BB/100")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundColor(Color(hex: "#8A8A8A"))
+                        .frame(width: 72, alignment: .trailing)
+                    Text("BB/hr")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundColor(Color(hex: "#8A8A8A"))
+                        .frame(width: 72, alignment: .trailing)
+                } else {
+                    Text("$/100")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundColor(Color(hex: "#8A8A8A"))
+                        .frame(width: 72, alignment: .trailing)
+                    Text("$/hr")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundColor(Color(hex: "#8A8A8A"))
+                        .frame(width: 72, alignment: .trailing)
                 }
-                Text("Sess.")
-                    .font(.system(size: 11))
-                    .foregroundColor(.appSecondary)
-                    .frame(width: 44, alignment: .trailing)
+                Text("Hours")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundColor(Color(hex: "#8A8A8A"))
+                    .frame(width: 56, alignment: .trailing)
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
@@ -464,7 +540,7 @@ struct OnlinePlatformAnalyticsView: View {
 
             // Rows
             ForEach(breakdownRows) { row in
-                AnalyticsTableRow(row: row)
+                AnalyticsTableRow(row: row, metricMode: metricMode)
             }
         }
         .background(Color(hex: "#0D0D0D"))
@@ -595,15 +671,14 @@ struct SummaryMetricCard: View {
                 .foregroundColor(.appSecondary)
                 .frame(maxWidth: .infinity, alignment: .leading)
             Text(value ?? "—")
-                .font(.system(size: 33, weight: .bold))
-                .fontWeight(.bold)
+                .font(.system(size: 28, weight: .bold))
                 .foregroundColor(value == nil ? .appSecondary : valueColor)
                 .minimumScaleFactor(0.6)
                 .lineLimit(1)
                 .frame(maxWidth: .infinity, alignment: .center)
         }
         .padding(.horizontal, 12)
-        .padding(.vertical, 14)
+        .frame(maxWidth: .infinity, minHeight: 80, maxHeight: 80)
         .background(Color(hex: "#0B0B0B"))
         .cornerRadius(12)
         .overlay(
@@ -617,17 +692,23 @@ struct SummaryMetricCard: View {
 
 struct AnalyticsTableRow: View {
     let row: AnalyticsRowData
+    let metricMode: MetricMode
 
-    private let lowSample = 3
-    var isLowSample: Bool { row.sessionCount < lowSample }
+    var isLowSample: Bool { row.totalHours < 2.0 }
 
-    /// Formats a metric value for the breakdown table:
-    /// explicit "+" for positive, "-" for negative, 1 decimal place, no currency suffix.
     static func formatMetricValue(_ value: Double, decimals: Int = 1) -> String {
         let fmt = String(format: "%.\(decimals)f", abs(value))
         if value > 0 { return "+\(fmt)" }
         if value < 0 { return "-\(fmt)" }
         return fmt
+    }
+
+    static func formatHours(_ hours: Double) -> String {
+        let rounded = (hours * 10).rounded() / 10
+        if rounded.truncatingRemainder(dividingBy: 1) == 0 {
+            return "\(Int(rounded))h"
+        }
+        return String(format: "%.1fh", rounded)
     }
 
     var body: some View {
@@ -639,26 +720,29 @@ struct AnalyticsTableRow: View {
                         .foregroundColor(isLowSample ? Color(hex: "#555555") : .appPrimary)
                     if isLowSample {
                         Image(systemName: "exclamationmark.triangle.fill")
-                            .font(.system(size: 10))
-                            .foregroundColor(Color(hex: "#555555"))
+                            .font(.system(size: 12))
+                            .foregroundColor(Color(hex: "#FF9500"))
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
 
-                metricCell(row.bb100)
-                metricCell(row.dollarPer100)
-                metricCell(row.bbPerHour)
-                metricCell(row.dollarPerHour)
+                if metricMode == .bb {
+                    metricCell(row.bb100, width: 72)
+                    metricCell(row.bbPerHour, width: 72)
+                } else {
+                    metricCell(row.dollarPer100, width: 72)
+                    metricCell(row.dollarPerHour, width: 72)
+                }
 
-                Text("\(row.sessionCount)")
-                    .font(.system(size: 11))
+                Text(Self.formatHours(row.totalHours))
+                    .font(.system(size: 13))
                     .foregroundColor(.appSecondary)
-                    .frame(width: 44, alignment: .trailing)
+                    .frame(width: 56, alignment: .trailing)
                     .lineLimit(1)
                     .minimumScaleFactor(0.8)
             }
             .padding(.horizontal, 12)
-            .padding(.vertical, 10)
+            .padding(.vertical, 8)
 
             Divider()
                 .background(Color(hex: "#2A2A2A"))
@@ -666,19 +750,21 @@ struct AnalyticsTableRow: View {
     }
 
     @ViewBuilder
-    func metricCell(_ value: Double?) -> some View {
+    func metricCell(_ value: Double?, width: CGFloat) -> some View {
         if let v = value {
             Text(Self.formatMetricValue(v))
-                .font(.system(size: 13))
+                .font(.system(size: 13, weight: .semibold))
                 .foregroundColor(cellColor(for: v))
-                .frame(width: 52, alignment: .trailing)
+                .frame(width: width, alignment: .trailing)
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
         } else {
             Text("—")
-                .font(.system(size: 13))
+                .font(.system(size: 13, weight: .semibold))
                 .foregroundColor(.appSecondary)
-                .frame(width: 52, alignment: .trailing)
+                .frame(width: width, alignment: .trailing)
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
         }
     }
 
@@ -692,6 +778,7 @@ struct AnalyticsTableRow: View {
 
 struct AnalyticsFilterSheet: View {
     @ObservedObject var filterState: OnlineAnalyticsFilterState
+    let primaryAxis: AnalyticsAxis
     @Environment(\.dismiss) private var dismiss
 
     @State private var openSection: String? = "dateRange"
@@ -734,30 +821,53 @@ struct AnalyticsFilterSheet: View {
         .presentationBackground(Color.appBackground)
     }
 
+    func sectionMatchesPrimaryAxis(key: String) -> Bool {
+        switch (key, primaryAxis) {
+        case ("stakes", .stakes): return true
+        case ("timeOfDay", .timeOfDay): return true
+        case ("dayOfWeek", .dayOfWeek): return true
+        case ("duration", .sessionDuration): return true
+        case ("tables", .tablesPlayed): return true
+        default: return false
+        }
+    }
+
     // MARK: - Accordion Section
 
     func filterSection<Content: View>(title: String, key: String, @ViewBuilder content: () -> Content) -> some View {
-        VStack(spacing: 0) {
+        let isDisabled = sectionMatchesPrimaryAxis(key: key)
+        return VStack(spacing: 0) {
             Button {
-                withAnimation(.easeInOut(duration: 0.2)) {
-                    openSection = openSection == key ? nil : key
+                if !isDisabled {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        openSection = openSection == key ? nil : key
+                    }
                 }
             } label: {
                 HStack {
                     Text(title)
                         .font(.subheadline)
                         .fontWeight(.semibold)
-                        .foregroundColor(.appPrimary)
+                        .foregroundColor(isDisabled ? .appSecondary : .appPrimary)
+                    if isDisabled {
+                        Text("Already used as primary breakdown")
+                            .font(.system(size: 12))
+                            .italic()
+                            .foregroundColor(.appSecondary)
+                    }
                     Spacer()
-                    Image(systemName: openSection == key ? "chevron.up" : "chevron.down")
-                        .font(.caption)
-                        .foregroundColor(.appSecondary)
+                    if !isDisabled {
+                        Image(systemName: openSection == key ? "chevron.up" : "chevron.down")
+                            .font(.caption)
+                            .foregroundColor(.appSecondary)
+                    }
                 }
                 .padding(.horizontal, 16)
                 .padding(.vertical, 14)
             }
+            .disabled(isDisabled)
 
-            if openSection == key {
+            if openSection == key && !isDisabled {
                 content()
                     .padding(.horizontal, 16)
                     .padding(.bottom, 12)
@@ -901,4 +1011,3 @@ struct AnalyticsFilterSheet: View {
         .background(Color.appBackground)
     }
 }
-

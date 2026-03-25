@@ -564,19 +564,26 @@ struct FilterNavBarButton: View {
     var body: some View {
         Button(action: action) {
             ZStack(alignment: .topTrailing) {
-                Image(systemName: "line.3.horizontal.decrease.circle")
-                    .foregroundColor(.appGold)
-                    .font(.system(size: 20))
+                ZStack {
+                    Circle()
+                        .fill(Color.clear)
+                        .frame(width: 36, height: 36)
+                    Image(systemName: "line.3.horizontal.decrease")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundColor(.appGold)
+                }
                 if activeCount > 0 {
                     Text("\(activeCount)")
                         .font(.system(size: 10, weight: .bold))
                         .foregroundColor(.black)
-                        .frame(minWidth: 16, minHeight: 16)
-                        .background(Color.appGold)
+                        .frame(minWidth: 15, minHeight: 15)
+                        .background(Color.appGold.opacity(1))
                         .clipShape(Circle())
-                        .offset(x: 8, y: -8)
+                        // Keep badge inside nav-bar bounds to avoid iOS clipping.
+                        .offset(x: 5, y: 2)
                 }
             }
+            .frame(width: 40, height: 40, alignment: .center)
         }
     }
 }

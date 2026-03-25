@@ -139,6 +139,42 @@ enum AppFormatter {
     static func bbValue(_ value: Double) -> String {
         String(format: "%.1f", value)
     }
+
+    /// Signed compact currency with no "$" symbol.
+    /// Format: +1.5k CAD / -950.25 CAD / 0 CAD
+    /// - Uses "k" suffix at >= 1,000
+    /// - Keeps currency code AFTER the number (per UI_MASTER)
+    static func currencySignedCompact(_ value: Double, code: String = "") -> String {
+        let absVal = Swift.abs(value)
+        let suffix = code.isEmpty ? "" : " \(code)"
+
+        let sign: String
+        if value > 0 { sign = "+" }
+        else if value < 0 { sign = "-" }
+        else { sign = "" }
+
+        let nf = NumberFormatter()
+        nf.numberStyle = .decimal
+        nf.groupingSeparator = ","
+        nf.decimalSeparator = "."
+
+        if absVal >= 1000 {
+            let scaled = absVal / 1000
+            // Keep it tight: 1 decimal for < 10k, else 0 decimals.
+            nf.maximumFractionDigits = absVal >= 10_000 ? 0 : 1
+            nf.minimumFractionDigits = 0
+            let num = nf.string(from: NSNumber(value: scaled)) ?? "0"
+            return "\(sign)\(num)k\(suffix)"
+        }
+
+        nf.maximumFractionDigits = 2
+        nf.minimumFractionDigits = 2
+        let num = nf.string(from: NSNumber(value: absVal)) ?? "0.00"
+        if value == 0 {
+            return "0.00\(suffix)"
+        }
+        return "\(sign)\(num)\(suffix)"
+    }
 }
 
 // MARK: - Game type short labels for session preview rows only (list, calendar, platform detail)

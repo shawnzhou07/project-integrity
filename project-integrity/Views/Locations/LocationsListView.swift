@@ -10,6 +10,22 @@ struct LocationsListView: View {
         animation: .default
     ) private var locations: FetchedResults<Location>
 
+    @FetchRequest(
+        sortDescriptors: [],
+        predicate: NSPredicate(format: "startTime != nil AND endTime == nil"),
+        animation: .default
+    ) private var activeLiveSessions: FetchedResults<LiveCash>
+
+    @FetchRequest(
+        sortDescriptors: [],
+        predicate: NSPredicate(format: "startTime != nil AND endTime == nil"),
+        animation: .default
+    ) private var activeOnlineSessions: FetchedResults<OnlineCash>
+
+    private var hasActiveSession: Bool {
+        !activeLiveSessions.isEmpty || !activeOnlineSessions.isEmpty
+    }
+
     @State private var showAddLocation = false
 
     var body: some View {
@@ -40,6 +56,10 @@ struct LocationsListView: View {
                     .listStyle(.plain)
                     .scrollContentBackground(.hidden)
                     .background(Color.appBackground)
+                    .safeAreaInset(edge: .bottom) {
+                        Color.clear.frame(height: smartBottomPadding(isSessionActive: hasActiveSession))
+                    }
+                    .animation(.easeInOut(duration: 0.25), value: hasActiveSession)
                 }
             }
         }

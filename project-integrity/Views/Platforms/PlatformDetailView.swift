@@ -17,6 +17,22 @@ struct PlatformDetailView: View {
         predicate: NSPredicate(format: "isVerified == NO AND endTime != nil")
     ) private var unverifiedLiveSessions: FetchedResults<LiveCash>
 
+    @FetchRequest(
+        sortDescriptors: [],
+        predicate: NSPredicate(format: "startTime != nil AND endTime == nil"),
+        animation: .default
+    ) private var activeLiveSessions: FetchedResults<LiveCash>
+
+    @FetchRequest(
+        sortDescriptors: [],
+        predicate: NSPredicate(format: "startTime != nil AND endTime == nil"),
+        animation: .default
+    ) private var activeOnlineSessions: FetchedResults<OnlineCash>
+
+    private var hasActiveSession: Bool {
+        !activeLiveSessions.isEmpty || !activeOnlineSessions.isEmpty
+    }
+
     @State private var showDeposit = false
     @State private var showWithdrawal = false
     @State private var showAdjustment = false
@@ -53,7 +69,10 @@ struct PlatformDetailView: View {
                     adjustmentsSection
                     dangerZone
                 }
-                .padding()
+                .padding(.horizontal)
+                .padding(.top)
+                .padding(.bottom, smartBottomPadding(isSessionActive: hasActiveSession))
+                .animation(.easeInOut(duration: 0.25), value: hasActiveSession)
             }
             .refreshable {
                 await performRefresh()

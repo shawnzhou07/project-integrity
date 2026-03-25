@@ -55,6 +55,10 @@ struct SessionsListView: View {
         !unverifiedOnlineSessions.isEmpty || !unverifiedLiveSessions.isEmpty
     }
 
+    var hasActiveSession: Bool {
+        !activeLiveSessions.isEmpty || !activeOnlineSessions.isEmpty
+    }
+
     var allSessions: [SessionListItem] {
         var result: [SessionListItem] = []
         for s in onlineSessions where filterState.shouldIncludeOnlineForSessions(s) {
@@ -89,19 +93,14 @@ struct SessionsListView: View {
     var body: some View {
         ZStack {
             Color.appBackground.ignoresSafeArea()
-            VStack(spacing: 0) {
-                if filterState.activeFilterCount > 0 {
-                    filterStatusBar
-                }
-                sessionList
-            }
+            sessionList
         }
         .id(refreshID)
         .navigationTitle("Sessions")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .navigationBarTrailing) {
-                HStack(spacing: 12) {
+                HStack(spacing: 10) {
                     FilterNavBarButton(activeCount: filterState.activeFilterCount) {
                         showFilterSheet = true
                     }
@@ -113,9 +112,12 @@ struct SessionsListView: View {
                         }
                     } label: {
                         Image(systemName: "plus")
+                            .font(.system(size: 18, weight: .semibold))
                             .foregroundColor(.appGold)
+                            .frame(width: 28, height: 28, alignment: .center)
                     }
                 }
+                .padding(.trailing, 2)
             }
         }
         .alert("Active Session", isPresented: $showActiveSessionAlert) {
@@ -149,18 +151,6 @@ struct SessionsListView: View {
         }
     }
 
-    var filterStatusBar: some View {
-        HStack {
-            Spacer()
-            Text("Showing \(allSessions.count) of \(totalSessionCount) sessions")
-                .font(.caption)
-                .foregroundColor(.appSecondary)
-            Spacer()
-        }
-        .padding(.vertical, 6)
-        .background(Color.appBackground)
-    }
-
     var sessionList: some View {
         List {
             if allSessions.isEmpty {
@@ -183,6 +173,10 @@ struct SessionsListView: View {
         .listStyle(.plain)
         .scrollContentBackground(.hidden)
         .background(Color.appBackground)
+        .safeAreaInset(edge: .bottom) {
+            Color.clear.frame(height: smartBottomPadding(isSessionActive: hasActiveSession))
+        }
+        .animation(.easeInOut(duration: 0.25), value: hasActiveSession)
         .refreshable {
             await performRefresh()
         }

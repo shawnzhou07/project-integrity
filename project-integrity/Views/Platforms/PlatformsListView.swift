@@ -12,6 +12,22 @@ struct PlatformsListView: View {
         animation: .default
     ) private var platforms: FetchedResults<Platform>
 
+    @FetchRequest(
+        sortDescriptors: [],
+        predicate: NSPredicate(format: "startTime != nil AND endTime == nil"),
+        animation: .default
+    ) private var activeLiveSessions: FetchedResults<LiveCash>
+
+    @FetchRequest(
+        sortDescriptors: [],
+        predicate: NSPredicate(format: "startTime != nil AND endTime == nil"),
+        animation: .default
+    ) private var activeOnlineSessions: FetchedResults<OnlineCash>
+
+    private var hasActiveSession: Bool {
+        !activeLiveSessions.isEmpty || !activeOnlineSessions.isEmpty
+    }
+
     @State private var showAddPlatform = false
     @State private var platformToDelete: Platform? = nil
     @State private var showDeleteAlert = false
@@ -59,6 +75,10 @@ struct PlatformsListView: View {
                 .listStyle(.plain)
                 .scrollContentBackground(.hidden)
                 .background(Color.appBackground)
+                .safeAreaInset(edge: .bottom) {
+                    Color.clear.frame(height: smartBottomPadding(isSessionActive: hasActiveSession))
+                }
+                .animation(.easeInOut(duration: 0.25), value: hasActiveSession)
                 .refreshable {
                     await performRefresh()
                 }
@@ -210,24 +230,23 @@ struct PlatformRowView: View {
         HStack(spacing: 12) {
             VStack(alignment: .leading, spacing: 4) {
                 Text(platform.displayName)
-                    .font(.subheadline)
-                    .fontWeight(.medium)
+                    .font(.system(size: 16, weight: .medium))
                     .foregroundColor(.appPrimary)
                 Text(platform.displayCurrency)
-                    .font(.caption)
+                    .font(.system(size: 13))
                     .foregroundColor(.appSecondary)
             }
             Spacer()
             VStack(alignment: .trailing, spacing: 4) {
                 Text(AppFormatter.currencySigned(platform.netResult, code: baseCurrency))
-                    .font(.subheadline)
-                    .fontWeight(.medium)
+                    .font(.system(size: 17, weight: .medium))
                     .foregroundColor(netResultColor)
                 Text(AppFormatter.currency(platform.currentBalance, code: platform.displayCurrency))
-                    .font(.caption)
+                    .font(.system(size: 13))
                     .foregroundColor(.appSecondary)
             }
         }
+        .frame(minHeight: 72)
         .padding(.vertical, 6)
     }
 }
