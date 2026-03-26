@@ -1,4 +1,5 @@
-// Refer to UI_MASTER.md at project root before making UI changes.
+// 📖 Refer to UI_MASTER.md, ARCHITECTURE.md, and BUSINESS_RULES.md before making UI or logic changes.
+// 📝 Update relevant .md docs after making changes (except CHANGELOG.md which updates per build). See README.md Documentation Maintenance section.
 import SwiftUI
 
 struct CashGameTypePickerView: View {

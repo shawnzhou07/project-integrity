@@ -1,4 +1,9 @@
 # Veritas UI Master Reference
+
+---
+> ⚠️ MAINTENANCE REQUIREMENT: This document must be updated whenever related code changes are made. Before closing any coding session, review changes made and update all affected sections in the relevant .md files. Outdated documentation is worse than no documentation.
+---
+
 > ⚠️ All UI changes must reference this document first. Do not deviate from these standards without updating this document.
 
 ---
