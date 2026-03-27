@@ -51,6 +51,7 @@ struct SessionsListView: View {
     @State private var showFilterSheet = false
     @StateObject private var filterState = FilterState()
     @State private var refreshID = UUID()
+    @State private var navigateToSession: SessionListItem? = nil
 
     var hasUnverifiedSession: Bool {
         !unverifiedOnlineSessions.isEmpty || !unverifiedLiveSessions.isEmpty
@@ -146,6 +147,14 @@ struct SessionsListView: View {
         .navigationDestination(item: $sessionCoordinator.navigateToActiveOnlineSession) { session in
             OnlineSessionDetailView(session: session)
         }
+        .navigationDestination(item: $navigateToSession) { item in
+            switch item.kind {
+            case .online(let s):
+                OnlineSessionDetailView(session: s)
+            case .live(let s):
+                LiveSessionDetailView(session: s)
+            }
+        }
         .sheet(isPresented: $showFilterSheet) {
             FilterSheetView(filterState: filterState, showSessionsOnlyFilters: true)
                 .environment(\.managedObjectContext, viewContext)
@@ -192,11 +201,10 @@ struct SessionsListView: View {
     func sessionRow(_ item: SessionListItem) -> some View {
         switch item.kind {
         case .online(let s):
-            NavigationLink {
-                OnlineSessionDetailView(session: s)
+            Button {
+                navigateToSession = item
             } label: {
                 SessionRowView(
-                    date: s.sessionDate,
                     icon: "desktopcomputer",
                     title: s.platformName,
                     subtitle: s.displayBlinds.isEmpty ? GameTypePreviewDisplay.short(s.gameType) : "\(GameTypePreviewDisplay.short(s.gameType)) \(s.displayBlinds)",
@@ -204,26 +212,23 @@ struct SessionsListView: View {
                     netResult: s.netProfitLossBase,
                     currency: baseCurrency,
                     isActive: s.isActive,
-                    isUnverified: !s.isVerified && !s.isActive
+                    isUnverified: !s.isVerified && !s.isActive,
+                    isVerified: s.isVerified,
+                    showDate: true,
+                    date: s.sessionDate
                 )
             }
-            .listRowBackground(
-                ZStack {
-                    Color.appSurface
-                    if s.isVerified {
-                        RoundedRectangle(cornerRadius: 8)
-                            .stroke(Color.appGold.opacity(0.45), lineWidth: 1.5)
-                    }
-                }
-            )
+            .buttonStyle(.plain)
+            .listRowBackground(Color.clear)
+            .listRowSeparator(.hidden)
             .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
+            .contentShape(Rectangle())
 
         case .live(let s):
-            NavigationLink {
-                LiveSessionDetailView(session: s)
+            Button {
+                navigateToSession = item
             } label: {
                 SessionRowView(
-                    date: s.sessionDate,
                     icon: "building.columns",
                     title: s.displayLocation,
                     subtitle: s.displayBlinds.isEmpty ? GameTypePreviewDisplay.short(s.gameType) : "\(GameTypePreviewDisplay.short(s.gameType)) \(s.displayBlinds)",
@@ -231,19 +236,17 @@ struct SessionsListView: View {
                     netResult: s.netProfitLossBase,
                     currency: baseCurrency,
                     isActive: s.isActive,
-                    isUnverified: !s.isVerified && !s.isActive
+                    isUnverified: !s.isVerified && !s.isActive,
+                    isVerified: s.isVerified,
+                    showDate: true,
+                    date: s.sessionDate
                 )
             }
-            .listRowBackground(
-                ZStack {
-                    Color.appSurface
-                    if s.isVerified {
-                        RoundedRectangle(cornerRadius: 8)
-                            .stroke(Color.appGold.opacity(0.45), lineWidth: 1.5)
-                    }
-                }
-            )
+            .buttonStyle(.plain)
+            .listRowBackground(Color.clear)
+            .listRowSeparator(.hidden)
             .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
+            .contentShape(Rectangle())
         }
     }
 
@@ -292,7 +295,31 @@ enum SessionKind {
     case live(LiveCash)
 }
 
-struct SessionListItem: Identifiable {
+extension SessionKind: Hashable {
+    static func == (lhs: SessionKind, rhs: SessionKind) -> Bool {
+        switch (lhs, rhs) {
+        case (.online(let a), .online(let b)):
+            return a.objectID == b.objectID
+        case (.live(let a), .live(let b)):
+            return a.objectID == b.objectID
+        default:
+            return false
+        }
+    }
+
+    func hash(into hasher: inout Hasher) {
+        switch self {
+        case .online(let s):
+            hasher.combine(0)
+            hasher.combine(s.objectID)
+        case .live(let s):
+            hasher.combine(1)
+            hasher.combine(s.objectID)
+        }
+    }
+}
+
+struct SessionListItem: Identifiable, Hashable {
     let id: UUID
     let date: Date
     let kind: SessionKind
@@ -301,7 +328,6 @@ struct SessionListItem: Identifiable {
 // MARK: - Session Row View
 
 struct SessionRowView: View {
-    let date: Date
     let icon: String
     let title: String
     let subtitle: String
@@ -310,23 +336,48 @@ struct SessionRowView: View {
     let currency: String
     let isActive: Bool
     var isUnverified: Bool = false
+    var isVerified: Bool = false
+    /// When true, renders a 44pt date column (month abbr + day number) to the left of the card.
+    /// When false, the card occupies full width — used in contexts where the date is already shown (e.g. Calendar day detail).
+    var showDate: Bool = false
+    var date: Date = Date()
 
     @State private var elapsed: TimeInterval = 0
     @State private var showUnverifiedInfoAlert = false
     let timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
+    private var monthAbbr: String {
+        Calendar.current.shortMonthSymbols[Calendar.current.component(.month, from: date) - 1].uppercased()
+    }
+    private var dayStr: String {
+        "\(Calendar.current.component(.day, from: date))"
+    }
+
     var body: some View {
+        HStack(alignment: .center, spacing: showDate ? 8 : 0) {
+            if showDate {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(monthAbbr)
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundColor(Color(hex: "#8A8A8A"))
+                    Text(dayStr)
+                        .font(.system(size: 17, weight: .semibold))
+                        .foregroundColor(.white)
+                }
+                .frame(width: 44, alignment: .leading)
+            }
+
+            card
+        }
+    }
+
+    private var card: some View {
         HStack(spacing: 12) {
             ZStack(alignment: .topLeading) {
-                VStack(alignment: .center, spacing: 2) {
-                    Image(systemName: icon)
-                        .font(.system(size: 18))
-                        .foregroundColor(.appGold)
-                    Text(AppFormatter.sessionDate(date))
-                        .font(.caption2)
-                        .foregroundColor(.appSecondary)
-                }
-                .frame(width: 52)
+                Image(systemName: icon)
+                    .font(.system(size: 18))
+                    .foregroundColor(.appGold)
+                    .frame(width: 28)
                 if isActive {
                     Circle()
                         .fill(Color(hex: "#34C759"))
@@ -337,10 +388,10 @@ struct SessionRowView: View {
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 4) {
                     Text(title)
-                        .font(.subheadline)
-                        .fontWeight(.medium)
-                        .foregroundColor(.appPrimary)
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundColor(.white)
                         .lineLimit(1)
+                        .minimumScaleFactor(0.85)
                     if isUnverified {
                         Button {
                             showUnverifiedInfoAlert = true
@@ -358,8 +409,8 @@ struct SessionRowView: View {
                     }
                 }
                 Text(subtitle)
-                    .font(.caption)
-                    .foregroundColor(.appSecondary)
+                    .font(.system(size: 13, weight: .regular))
+                    .foregroundColor(Color(hex: "#8A8A8A"))
                     .lineLimit(1)
             }
 
@@ -367,24 +418,38 @@ struct SessionRowView: View {
 
             VStack(alignment: .trailing, spacing: 4) {
                 Text(AppFormatter.currencySigned(netResult, code: currency))
-                    .font(.subheadline)
-                    .fontWeight(.semibold)
+                    .font(.system(size: 15, weight: .semibold))
                     .foregroundColor(netResult.profitColor)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.85)
                 if isActive {
                     Text(AppFormatter.duration(elapsed / 3600))
-                        .font(.caption)
+                        .font(.system(size: 12, weight: .regular))
                         .foregroundColor(.appGold)
+                        .lineLimit(1)
                         .onReceive(timer) { _ in
                             elapsed += 1
                         }
                 } else {
                     Text(AppFormatter.duration(duration))
-                        .font(.caption)
-                        .foregroundColor(.appSecondary)
+                        .font(.system(size: 12, weight: .regular))
+                        .foregroundColor(Color(hex: "#8A8A8A"))
+                        .lineLimit(1)
                 }
             }
         }
-        .padding(.vertical, 6)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .background(Color.appSurface)
+        .overlay(alignment: .leading) {
+            if isVerified {
+                Rectangle()
+                    .fill(Color(hex: "#C9B47A"))
+                    .frame(width: 3)
+            }
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 12))
+        .frame(maxWidth: .infinity)
     }
 }
 

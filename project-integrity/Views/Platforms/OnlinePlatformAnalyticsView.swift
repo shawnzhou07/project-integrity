@@ -112,19 +112,20 @@ class OnlineAnalyticsFilterState: ObservableObject {
     @Published var dateRange: AnalyticsDateRange = .allTime
     @Published var selectedStakes: Set<String> = []
     @Published var allStakes: [String] = []
+    @Published var allTables: [String] = []
     @Published var selectedTimesOfDay: Set<String> = Set(["Morning", "Afternoon", "Evening", "Night"])
-    @Published var selectedDaysOfWeek: Set<String> = Set(["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"])
+    @Published var selectedDaysOfWeek: Set<String> = Set(["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"])
     @Published var selectedDurations: Set<DurationBucket> = Set(DurationBucket.allCases)
-    @Published var selectedTables: Set<String> = Set(["1", "2", "3", "4+"])
+    @Published var selectedTables: Set<String> = []
 
     var activeFilterCount: Int {
         var count = 0
         if dateRange != .allTime { count += 1 }
         if !allStakes.isEmpty && selectedStakes != Set(allStakes) { count += 1 }
         if selectedTimesOfDay != Set(["Morning", "Afternoon", "Evening", "Night"]) { count += 1 }
-        if selectedDaysOfWeek != Set(["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]) { count += 1 }
+        if selectedDaysOfWeek != Set(["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]) { count += 1 }
         if selectedDurations != Set(DurationBucket.allCases) { count += 1 }
-        if selectedTables != Set(["1", "2", "3", "4+"]) { count += 1 }
+        if !allTables.isEmpty && selectedTables != Set(allTables) { count += 1 }
         return count
     }
 
@@ -137,13 +138,13 @@ class OnlineAnalyticsFilterState: ObservableObject {
         if selectedTimesOfDay != Set(["Morning", "Afternoon", "Evening", "Night"]) {
             chips.append(("Times filtered", "times"))
         }
-        if selectedDaysOfWeek != Set(["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]) {
+        if selectedDaysOfWeek != Set(["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]) {
             chips.append(("Days filtered", "days"))
         }
         if selectedDurations != Set(DurationBucket.allCases) {
             chips.append(("Duration filtered", "durations"))
         }
-        if selectedTables != Set(["1", "2", "3", "4+"]) {
+        if !allTables.isEmpty && selectedTables != Set(allTables) {
             chips.append(("Tables filtered", "tables"))
         }
         return chips
@@ -154,9 +155,9 @@ class OnlineAnalyticsFilterState: ObservableObject {
         case "dateRange": dateRange = .allTime
         case "stakes": selectedStakes = Set(allStakes)
         case "times": selectedTimesOfDay = Set(["Morning", "Afternoon", "Evening", "Night"])
-        case "days": selectedDaysOfWeek = Set(["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"])
+        case "days": selectedDaysOfWeek = Set(["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"])
         case "durations": selectedDurations = Set(DurationBucket.allCases)
-        case "tables": selectedTables = Set(["1", "2", "3", "4+"])
+        case "tables": selectedTables = Set(allTables)
         default: break
         }
     }
@@ -165,9 +166,9 @@ class OnlineAnalyticsFilterState: ObservableObject {
         dateRange = .allTime
         selectedStakes = Set(allStakes)
         selectedTimesOfDay = Set(["Morning", "Afternoon", "Evening", "Night"])
-        selectedDaysOfWeek = Set(["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"])
+        selectedDaysOfWeek = Set(["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"])
         selectedDurations = Set(DurationBucket.allCases)
-        selectedTables = Set(["1", "2", "3", "4+"])
+        selectedTables = Set(allTables)
     }
 
     func clearFilterForAxis(_ axis: AnalyticsAxis) {
@@ -177,13 +178,28 @@ class OnlineAnalyticsFilterState: ObservableObject {
         case .timeOfDay:
             selectedTimesOfDay = Set(["Morning", "Afternoon", "Evening", "Night"])
         case .dayOfWeek:
-            selectedDaysOfWeek = Set(["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"])
+            selectedDaysOfWeek = Set(["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"])
         case .sessionDuration:
             selectedDurations = Set(DurationBucket.allCases)
         case .tablesPlayed:
-            selectedTables = Set(["1", "2", "3", "4+"])
+            selectedTables = Set(allTables)
         }
     }
+}
+
+// MARK: - Scroll Preference Keys
+
+private struct AxisScrollOffsetKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = nextValue() }
+}
+private struct AxisContentWidthKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = nextValue() }
+}
+private struct AxisViewWidthKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = nextValue() }
 }
 
 // MARK: - Main View
@@ -199,6 +215,11 @@ struct OnlinePlatformAnalyticsView: View {
     @State private var showFilterSheet = false
     @State private var allSessions: [OnlineCash] = []
     @State private var refreshID = UUID()
+
+    @Namespace private var toggleNamespace
+    @State private var axisScrollOffset: CGFloat = 0
+    @State private var axisContentWidth: CGFloat = 0
+    @State private var axisContainerWidth: CGFloat = 0
 
     @FetchRequest(
         sortDescriptors: [],
@@ -292,7 +313,28 @@ struct OnlinePlatformAnalyticsView: View {
             ))
         }
 
-        return rows.sorted { $0.totalBBWon > $1.totalBBWon }
+        let rowByLabel = Dictionary(uniqueKeysWithValues: rows.map { ($0.label, $0) })
+        let orderedLabels: [String]
+        switch selectedAxis {
+        case .stakes:
+            orderedLabels = rowByLabel.keys.sorted { lhs, rhs in
+                stakeSortKey(lhs) < stakeSortKey(rhs)
+            }
+        case .timeOfDay:
+            let order = ["Morning", "Afternoon", "Evening", "Night"]
+            orderedLabels = order.filter { rowByLabel[$0] != nil }
+        case .dayOfWeek:
+            let order = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+            orderedLabels = order.filter { rowByLabel[$0] != nil }
+        case .sessionDuration:
+            let order = DurationBucket.allCases.map(\.rawValue)
+            orderedLabels = order.filter { rowByLabel[$0] != nil }
+        case .tablesPlayed:
+            orderedLabels = rowByLabel.keys.sorted {
+                (Int($0) ?? Int.max) < (Int($1) ?? Int.max)
+            }
+        }
+        return orderedLabels.compactMap { rowByLabel[$0] }
     }
 
     // MARK: Body
@@ -315,18 +357,24 @@ struct OnlinePlatformAnalyticsView: View {
                 Button {
                     showFilterSheet = true
                 } label: {
-                    ZStack(alignment: .topTrailing) {
-                        Image(systemName: "line.3.horizontal.decrease.circle")
-                            .foregroundColor(.appGold)
-                        if filterState.activeFilterCount > 0 {
-                            Text("\(filterState.activeFilterCount)")
-                                .font(.system(size: 9, weight: .bold))
-                                .foregroundColor(.black)
-                                .frame(width: 14, height: 14)
-                                .background(Color.appGold)
-                                .clipShape(Circle())
-                                .offset(x: 6, y: -6)
-                        }
+                    Image(systemName: "line.3.horizontal.decrease")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundColor(.appGold)
+                        .frame(width: 36, height: 36)
+                }
+                .overlay(alignment: .topTrailing) {
+                    if filterState.activeFilterCount > 0 {
+                        Text("\(filterState.activeFilterCount)")
+                            .font(.system(size: 11, weight: .bold))
+                            .foregroundColor(.black)
+                            .frame(width: 20, height: 20)
+                            .background(
+                                Circle().fill(
+                                    Color(red: 201.0 / 255.0, green: 180.0 / 255.0, blue: 122.0 / 255.0, opacity: 1.0)
+                                )
+                            )
+                            .compositingGroup()
+                            .offset(CGSize(width: -3, height: 2))
                     }
                 }
             }
@@ -341,13 +389,13 @@ struct OnlinePlatformAnalyticsView: View {
     var mainContent: some View {
         ScrollView {
             VStack(spacing: 16) {
-                overviewCard
-                metricToggle
-                axisPicker
-                activeFilterChips
-                breakdownTable
+                filterRow
+                summaryStatsRow
+                performanceCard
+                axisSelectorTabs
+                breakdownSection
             }
-            .padding(.horizontal)
+            .padding(.horizontal, 16)
             .padding(.top)
             .padding(.bottom, smartBottomPadding(isSessionActive: hasActiveSession))
             .animation(.easeInOut(duration: 0.25), value: hasActiveSession)
@@ -358,198 +406,258 @@ struct OnlinePlatformAnalyticsView: View {
         }
     }
 
-    // MARK: - BB/$ Toggle
+    // MARK: - Filter Row (Filters pill + BB/$ toggle)
 
-    var metricToggle: some View {
-        Picker("Metric", selection: $metricMode) {
-            ForEach(MetricMode.allCases, id: \.self) { mode in
-                Text(mode.rawValue).tag(mode)
-            }
-        }
-        .pickerStyle(.segmented)
-        .tint(.appGold)
-        .animation(.none, value: metricMode)
-        .padding(12)
-        .background(Color(hex: "#0D0D0D"))
-        .cornerRadius(12)
-    }
-
-    // MARK: - Summary Cards
-
-    var overviewCard: some View {
-        VStack(spacing: 12) {
-            HStack {
-                Text("Performance Overview")
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundColor(.appGold)
-                Spacer()
-            }
-            summaryCardsGrid
-            datasetLabel
-        }
-        .padding(16)
-        .background(Color.appSurface)
-        .cornerRadius(16)
-    }
-
-    var summaryCardsGrid: some View {
-        let s = summaryStats
-        let noHands = s.hands == 0
-        return VStack(spacing: 10) {
-            HStack(spacing: 10) {
-                if metricMode == .bb {
-                    SummaryMetricCard(
-                        label: "BB/100",
-                        value: s.bb100.map { String(format: "%.1f BB", $0) },
-                        isPositive: s.bb100.map { $0 > 0 },
-                        isNegative: s.bb100.map { $0 < 0 }
-                    )
-                    SummaryMetricCard(
-                        label: "BB/hour",
-                        value: s.bbHour.map { String(format: "%.1f BB", $0) },
-                        isPositive: s.bbHour.map { $0 > 0 },
-                        isNegative: s.bbHour.map { $0 < 0 }
-                    )
-                } else {
-                    SummaryMetricCard(
-                        label: "$/100",
-                        value: s.dollar100.map { String(format: "%.2f \(baseCurrency)", $0) },
-                        isPositive: s.dollar100.map { $0 > 0 },
-                        isNegative: s.dollar100.map { $0 < 0 }
-                    )
-                    SummaryMetricCard(
-                        label: "$/hour",
-                        value: s.dollarHour.map { String(format: "%.2f \(baseCurrency)", $0) },
-                        isPositive: s.dollarHour.map { $0 > 0 },
-                        isNegative: s.dollarHour.map { $0 < 0 }
-                    )
-                }
-            }
-            if noHands && !filteredSessions.isEmpty {
-                Text("Enter hands played in sessions to see BB metrics.")
-                    .font(.system(size: 12))
-                    .foregroundColor(.appSecondary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, 2)
-            }
-        }
-    }
-
-    var datasetLabel: some View {
-        let s = summaryStats
-        return Text("\(s.sessions) sessions · \(String(format: "%.1f", s.hours)) hours · \(s.hands) hands")
-            .font(.system(size: 12))
-            .foregroundColor(.appSecondary)
-            .frame(maxWidth: .infinity, alignment: .center)
-            .padding(.top, 2)
-    }
-
-    // MARK: - Axis Picker
-
-    var axisPicker: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 8) {
-                ForEach(AnalyticsAxis.allCases, id: \.self) { axis in
-                    Button {
-                        selectedAxis = axis
-                        filterState.clearFilterForAxis(axis)
-                    } label: {
-                        Text(axis.rawValue)
-                            .font(.subheadline)
-                            .fontWeight(.medium)
-                            .foregroundColor(selectedAxis == axis ? .black : .appSecondary)
-                            .padding(.horizontal, 14)
-                            .padding(.vertical, 8)
-                            .background(selectedAxis == axis ? Color.appGold : Color(hex: "#1A1A1A"))
-                            .cornerRadius(20)
+    var filterRow: some View {
+        HStack {
+            if filterState.activeFilterCount > 0 {
+                Button {
+                    filterState.clearAll()
+                } label: {
+                    HStack(spacing: 6) {
+                        Text("\(filterState.activeFilterCount) Filters")
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundColor(.white)
+                        Text("×")
+                            .font(.system(size: 16, weight: .medium))
+                            .foregroundColor(Color(hex: "#8A8A8A"))
                     }
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 8)
+                    .background(Color(hex: "#1A1A1A"))
+                    .clipShape(Capsule())
+                    .overlay(Capsule().stroke(Color(hex: "#2A2A2A"), lineWidth: 1))
                 }
+                .buttonStyle(.plain)
             }
-            .padding(.horizontal, 1)
-        }
-    }
 
-    // MARK: - Active Filter Chips
+            Spacer()
 
-    @ViewBuilder
-    var activeFilterChips: some View {
-        let chips = filterState.activeChips
-        if !chips.isEmpty {
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 8) {
-                    ForEach(chips, id: \.key) { chip in
-                        HStack(spacing: 4) {
-                            Text(chip.label)
-                                .font(.caption)
-                                .foregroundColor(.black)
-                            Button {
-                                filterState.resetChip(key: chip.key)
-                            } label: {
-                                Image(systemName: "xmark")
-                                    .font(.system(size: 9, weight: .bold))
-                                    .foregroundColor(.black)
-                            }
-                        }
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 5)
-                        .background(Color.appGold)
-                        .cornerRadius(12)
-                    }
-                }
-                .padding(.horizontal, 1)
-            }
-        }
-    }
-
-    // MARK: - Breakdown Table
-
-    var breakdownTable: some View {
-        VStack(spacing: 0) {
-            // Header
             HStack(spacing: 0) {
-                Text(selectedAxis.columnLabel)
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundColor(Color(hex: "#8A8A8A"))
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                if metricMode == .bb {
-                    Text("BB/100")
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundColor(Color(hex: "#8A8A8A"))
-                        .frame(width: 72, alignment: .trailing)
-                    Text("BB/hr")
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundColor(Color(hex: "#8A8A8A"))
-                        .frame(width: 72, alignment: .trailing)
-                } else {
-                    Text("$/100")
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundColor(Color(hex: "#8A8A8A"))
-                        .frame(width: 72, alignment: .trailing)
-                    Text("$/hr")
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundColor(Color(hex: "#8A8A8A"))
-                        .frame(width: 72, alignment: .trailing)
+                ForEach(MetricMode.allCases, id: \.self) { mode in
+                    Button {
+                        withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+                            metricMode = mode
+                        }
+                    } label: {
+                        Text(mode.rawValue)
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundColor(metricMode == mode ? .black : Color(hex: "#8A8A8A"))
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 7)
+                            .background(
+                                Group {
+                                    if metricMode == mode {
+                                        Capsule()
+                                            .fill(Color(hex: "#C9B47A"))
+                                            .matchedGeometryEffect(id: "togglePill", in: toggleNamespace)
+                                    }
+                                }
+                            )
+                    }
+                    .buttonStyle(.plain)
                 }
-                Text("Hours")
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundColor(Color(hex: "#8A8A8A"))
-                    .frame(width: 56, alignment: .trailing)
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
             .background(Color(hex: "#1A1A1A"))
+            .clipShape(Capsule())
+        }
+    }
 
-            // Rows
-            ForEach(breakdownRows) { row in
-                AnalyticsTableRow(row: row, metricMode: metricMode)
+    // MARK: - Summary Stats Row
+
+    var summaryStatsRow: some View {
+        let s = summaryStats
+        return HStack(spacing: 8) {
+            AnalyticsStatCard(label: "SESSIONS", value: "\(s.sessions)")
+            AnalyticsStatCard(label: "HOURS", value: String(format: "%.1f", s.hours))
+            AnalyticsStatCard(label: "HANDS", value: "\(s.hands)")
+        }
+    }
+
+    // MARK: - Overall Performance Card
+
+    var performanceCard: some View {
+        let s = summaryStats
+        let primaryValue: Double? = metricMode == .bb ? s.bb100 : s.dollar100
+        let hourlyValue: Double? = metricMode == .bb ? s.bbHour : s.dollarHour
+
+        let primaryLabel = metricMode == .bb ? "BB/100" : "$/100"
+        let hourlyLabel = metricMode == .bb ? "BB/HOUR" : "CAD/HOUR"
+
+        let primaryText: String = {
+            guard let v = primaryValue else { return "—" }
+            let unit = metricMode == .bb ? "BB" : baseCurrency
+            if metricMode == .bb {
+                return v >= 0 ? String(format: "%.1f BB", v) : String(format: "-%.1f BB", abs(v))
+            } else {
+                return v >= 0 ? String(format: "%.2f \(unit)", v) : String(format: "-%.2f \(unit)", abs(v))
             }
+        }()
+
+        let hourlyText: String = {
+            guard let v = hourlyValue else { return "—" }
+            let unit = metricMode == .bb ? "BB" : baseCurrency
+            if metricMode == .bb {
+                return v >= 0 ? String(format: "%.1f BB", v) : String(format: "-%.1f BB", abs(v))
+            } else {
+                return v >= 0 ? String(format: "%.2f \(unit)", v) : String(format: "-%.2f \(unit)", abs(v))
+            }
+        }()
+
+        let primaryColor: Color = (primaryValue ?? 0) >= 0 ? Color(hex: "#4CAF50") : Color(hex: "#F44336")
+        let hourlyColor: Color = (hourlyValue ?? 0) >= 0 ? Color(hex: "#4CAF50") : Color(hex: "#F44336")
+
+        return HStack(spacing: 0) {
+            Color(hex: "#C9B47A")
+                .frame(width: 3)
+
+            VStack(alignment: .leading, spacing: 16) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(primaryLabel)
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundColor(Color(hex: "#8A8A8A"))
+                    Text(primaryText)
+                        .font(.system(size: 28, weight: .bold))
+                        .foregroundColor(primaryValue == nil ? .white : primaryColor)
+                        .minimumScaleFactor(0.6)
+                        .lineLimit(1)
+                }
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(hourlyLabel)
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundColor(Color(hex: "#8A8A8A"))
+                    Text(hourlyText)
+                        .font(.system(size: 28, weight: .bold))
+                        .foregroundColor(hourlyValue == nil ? .white : hourlyColor)
+                        .minimumScaleFactor(0.6)
+                        .lineLimit(1)
+                }
+            }
+            .padding(16)
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
         .background(Color(hex: "#0D0D0D"))
         .cornerRadius(16)
-        .overlay(
-            RoundedRectangle(cornerRadius: 16)
-                .stroke(Color.appBorder.opacity(0.7), lineWidth: 1)
-        )
+        .clipped()
+    }
+
+    // MARK: - Axis Selector Tabs
+
+    var axisSelectorTabs: some View {
+        let canScrollLeft = axisScrollOffset > 8
+        let canScrollRight = axisScrollOffset < (axisContentWidth - axisContainerWidth - 8)
+
+        return VStack(spacing: 0) {
+            ZStack {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 20) {
+                        ForEach(AnalyticsAxis.allCases, id: \.self) { axis in
+                            Button {
+                                selectedAxis = axis
+                                filterState.clearFilterForAxis(axis)
+                            } label: {
+                                VStack(spacing: 6) {
+                                    Text(axis.rawValue)
+                                        .font(.system(size: 13, weight: selectedAxis == axis ? .semibold : .medium))
+                                        .foregroundColor(selectedAxis == axis ? .white : Color(hex: "#8A8A8A"))
+                                    Rectangle()
+                                        .fill(selectedAxis == axis ? Color(hex: "#C9B47A") : Color.clear)
+                                        .frame(height: 2)
+                                }
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                    .padding(.bottom, 0)
+                    .background(
+                        GeometryReader { geo in
+                            Color.clear
+                                .preference(key: AxisContentWidthKey.self, value: geo.size.width)
+                                .preference(key: AxisScrollOffsetKey.self,
+                                    value: -geo.frame(in: .named("axisHScroll")).minX)
+                        }
+                    )
+                }
+                .coordinateSpace(name: "axisHScroll")
+                .background(
+                    GeometryReader { geo in
+                        Color.clear.preference(key: AxisViewWidthKey.self, value: geo.size.width)
+                    }
+                )
+                .onPreferenceChange(AxisScrollOffsetKey.self) { axisScrollOffset = $0 }
+                .onPreferenceChange(AxisContentWidthKey.self) { axisContentWidth = $0 }
+                .onPreferenceChange(AxisViewWidthKey.self) { axisContainerWidth = $0 }
+
+                HStack(spacing: 0) {
+                    LinearGradient(
+                        gradient: Gradient(colors: [Color.black.opacity(1), Color.black.opacity(0)]),
+                        startPoint: .leading, endPoint: .trailing
+                    )
+                    .frame(width: 40)
+                    .opacity(canScrollLeft ? 1 : 0)
+                    .allowsHitTesting(false)
+                    .animation(.easeInOut(duration: 0.2), value: canScrollLeft)
+
+                    Spacer()
+
+                    LinearGradient(
+                        gradient: Gradient(colors: [Color.black.opacity(0), Color.black.opacity(1)]),
+                        startPoint: .leading, endPoint: .trailing
+                    )
+                    .frame(width: 40)
+                    .opacity(canScrollRight ? 1 : 0)
+                    .allowsHitTesting(false)
+                    .animation(.easeInOut(duration: 0.2), value: canScrollRight)
+                }
+            }
+            .padding(.bottom, 10)
+
+            Rectangle()
+                .fill(Color(hex: "#2A2A2A"))
+                .frame(height: 1)
+        }
+    }
+
+    // MARK: - Breakdown Section
+
+    var breakdownSection: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 0) {
+                Text(selectedAxis.columnLabel.uppercased())
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundColor(Color(hex: "#8A8A8A"))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                Text(metricMode == .bb ? "BB/100" : "$/100")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundColor(Color(hex: "#8A8A8A"))
+                    .frame(width: 64, alignment: .trailing)
+
+                Text(metricMode == .bb ? "BB/HR" : "$/HR")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundColor(Color(hex: "#8A8A8A"))
+                    .frame(width: 60, alignment: .trailing)
+
+                Text("TIME")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundColor(Color(hex: "#8A8A8A"))
+                    .frame(width: 48, alignment: .trailing)
+            }
+            .padding(.vertical, 10)
+
+            Rectangle()
+                .fill(Color(hex: "#2A2A2A"))
+                .frame(height: 1)
+
+            VStack(spacing: 6) {
+                ForEach(breakdownRows) { row in
+                    AnalyticsTableRow(row: row, metricMode: metricMode, axis: selectedAxis)
+                }
+            }
+            .padding(.top, 6)
+
+        }
     }
 
     // MARK: - Empty State
@@ -590,6 +698,16 @@ struct OnlinePlatformAnalyticsView: View {
         if filterState.selectedStakes.isEmpty {
             filterState.selectedStakes = Set(stakes)
         }
+
+        let tables = Set(allSessions.map { tablesLabel(for: $0) }).sorted {
+            (Int($0) ?? Int.max) < (Int($1) ?? Int.max)
+        }
+        filterState.allTables = tables
+        let tableSet = Set(tables)
+        filterState.selectedTables = filterState.selectedTables.intersection(tableSet)
+        if filterState.selectedTables.isEmpty {
+            filterState.selectedTables = Set(tables)
+        }
     }
 
     func sessionHours(_ session: OnlineCash) -> Double {
@@ -619,25 +737,37 @@ struct OnlinePlatformAnalyticsView: View {
     }
 
     func dayOfWeekLabel(for session: OnlineCash) -> String {
-        guard let start = session.startTime else { return "Mon" }
+        guard let start = session.startTime else { return "Monday" }
         let weekday = Calendar.current.component(.weekday, from: start)
         switch weekday {
-        case 1: return "Sun"
-        case 2: return "Mon"
-        case 3: return "Tue"
-        case 4: return "Wed"
-        case 5: return "Thu"
-        case 6: return "Fri"
-        case 7: return "Sat"
-        default: return "Mon"
+        case 1: return "Sunday"
+        case 2: return "Monday"
+        case 3: return "Tuesday"
+        case 4: return "Wednesday"
+        case 5: return "Thursday"
+        case 6: return "Friday"
+        case 7: return "Saturday"
+        default: return "Monday"
         }
     }
 
     func tablesLabel(for session: OnlineCash) -> String {
         let t = Int(session.tables)
-        if t >= 4 { return "4+" }
         if t <= 0 { return "1" }
         return "\(t)"
+    }
+
+    func stakeSortKey(_ label: String) -> (Double, Double) {
+        let parts = label.split(separator: "/")
+        guard parts.count == 2 else { return (Double.greatestFiniteMagnitude, Double.greatestFiniteMagnitude) }
+        let sb = parseStakeAmount(String(parts[0]))
+        let bb = parseStakeAmount(String(parts[1]))
+        return (bb, sb)
+    }
+
+    func parseStakeAmount(_ raw: String) -> Double {
+        let filtered = raw.filter { "0123456789.".contains($0) }
+        return Double(filtered) ?? Double.greatestFiniteMagnitude
     }
 
     func groupKey(for session: OnlineCash) -> String {
@@ -651,41 +781,28 @@ struct OnlinePlatformAnalyticsView: View {
     }
 }
 
-// MARK: - Summary Metric Card
+// MARK: - Analytics Stat Card
 
-struct SummaryMetricCard: View {
+struct AnalyticsStatCard: View {
     let label: String
-    let value: String?
-    let isPositive: Bool?
-    let isNegative: Bool?
-
-    var valueColor: Color {
-        if isPositive == true { return .appProfit }
-        if isNegative == true { return .appLoss }
-        return .appSecondary
-    }
+    let value: String
 
     var body: some View {
-        VStack(spacing: 8) {
+        VStack(alignment: .leading, spacing: 4) {
             Text(label)
-                .font(.caption)
-                .foregroundColor(.appSecondary)
-                .frame(maxWidth: .infinity, alignment: .leading)
-            Text(value ?? "—")
-                .font(.system(size: 28, weight: .bold))
-                .foregroundColor(value == nil ? .appSecondary : valueColor)
-                .minimumScaleFactor(0.6)
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundColor(Color(hex: "#8A8A8A"))
+                .textCase(.uppercase)
+            Text(value)
+                .font(.system(size: 24, weight: .bold))
+                .foregroundColor(.white)
+                .minimumScaleFactor(0.7)
                 .lineLimit(1)
-                .frame(maxWidth: .infinity, alignment: .center)
         }
-        .padding(.horizontal, 12)
-        .frame(maxWidth: .infinity, minHeight: 80, maxHeight: 80)
-        .background(Color(hex: "#0B0B0B"))
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(12)
+        .background(Color(hex: "#1A1A1A"))
         .cornerRadius(12)
-        .overlay(
-            RoundedRectangle(cornerRadius: 12)
-                .stroke(Color.appBorder.opacity(0.6), lineWidth: 1)
-        )
     }
 }
 
@@ -694,6 +811,7 @@ struct SummaryMetricCard: View {
 struct AnalyticsTableRow: View {
     let row: AnalyticsRowData
     let metricMode: MetricMode
+    let axis: AnalyticsAxis
 
     var isLowSample: Bool { row.totalHours < 2.0 }
 
@@ -713,65 +831,78 @@ struct AnalyticsTableRow: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            HStack(spacing: 0) {
-                HStack(spacing: 4) {
-                    Text(row.label)
-                        .font(.system(size: 14, weight: .medium))
-                        .foregroundColor(isLowSample ? Color(hex: "#555555") : .appPrimary)
-                    if isLowSample {
-                        Image(systemName: "exclamationmark.triangle.fill")
+        HStack(spacing: 0) {
+            HStack(spacing: 6) {
+                if axis == .timeOfDay {
+                    HStack(spacing: 4) {
+                        Text(row.label)
+                            .font(.system(size: 15, weight: .medium))
+                            .foregroundColor(.white)
+                        Text(timeRangeSubtitle(for: row.label))
                             .font(.system(size: 12))
-                            .foregroundColor(Color(hex: "#FF9500"))
+                            .foregroundColor(Color(hex: "#8A8A8A"))
                     }
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-
-                if metricMode == .bb {
-                    metricCell(row.bb100, width: 72)
-                    metricCell(row.bbPerHour, width: 72)
                 } else {
-                    metricCell(row.dollarPer100, width: 72)
-                    metricCell(row.dollarPerHour, width: 72)
+                    Text(row.label)
+                        .font(.system(size: 15, weight: .medium))
+                        .foregroundColor(.white)
                 }
-
-                Text(Self.formatHours(row.totalHours))
-                    .font(.system(size: 13))
-                    .foregroundColor(.appSecondary)
-                    .frame(width: 56, alignment: .trailing)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.8)
+                if isLowSample {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .font(.system(size: 12))
+                        .foregroundColor(Color(hex: "#FF9500"))
+                }
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
+            .frame(maxWidth: .infinity, alignment: .leading)
 
-            Divider()
-                .background(Color(hex: "#2A2A2A"))
+            if metricMode == .bb {
+                metricCell(row.bb100, width: 64)
+                metricCell(row.bbPerHour, width: 60)
+            } else {
+                metricCell(row.dollarPer100, width: 64)
+                metricCell(row.dollarPerHour, width: 60)
+            }
+
+            Text(Self.formatHours(row.totalHours))
+                .font(.system(size: 13))
+                .foregroundColor(Color(hex: "#8A8A8A"))
+                .frame(width: 48, alignment: .trailing)
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
         }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
+        .background(Color(hex: "#0D0D0D"))
+        .cornerRadius(10)
     }
 
     @ViewBuilder
     func metricCell(_ value: Double?, width: CGFloat) -> some View {
         if let v = value {
             Text(Self.formatMetricValue(v))
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundColor(cellColor(for: v))
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundColor(v >= 0 ? Color(hex: "#4CAF50") : Color(hex: "#F44336"))
                 .frame(width: width, alignment: .trailing)
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
         } else {
             Text("—")
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundColor(.appSecondary)
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundColor(Color(hex: "#8A8A8A"))
                 .frame(width: width, alignment: .trailing)
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
         }
     }
 
-    func cellColor(for value: Double) -> Color {
-        if isLowSample { return Color(hex: "#555555") }
-        return value.profitColor
+    func timeRangeSubtitle(for label: String) -> String {
+        switch label {
+        case "Morning": return "(6am–12pm)"
+        case "Afternoon": return "(12pm–6pm)"
+        case "Evening": return "(6pm–11pm)"
+        case "Night": return "(11pm–6am)"
+        default: return ""
+        }
     }
 }
 
@@ -782,7 +913,7 @@ struct AnalyticsFilterSheet: View {
     let primaryAxis: AnalyticsAxis
     @Environment(\.dismiss) private var dismiss
 
-    @State private var openSection: String? = "dateRange"
+    @State private var openSection: String? = nil
 
     var body: some View {
         NavigationStack {
@@ -790,25 +921,27 @@ struct AnalyticsFilterSheet: View {
                 Color.appBackground.ignoresSafeArea()
                 ScrollView {
                     VStack(spacing: 0) {
-                        filterSection(title: "Date Range", key: "dateRange") {
+                        filterSection(title: "Date Range", key: "dateRange", activeCount: filterState.dateRange == .allTime ? 0 : 1) {
                             dateRangeContent
                         }
-                        filterSection(title: "Stakes", key: "stakes") {
+                        filterSection(title: "Stakes", key: "stakes", activeCount: stakesActiveCount) {
                             stakesContent
                         }
-                        filterSection(title: "Time of Day", key: "timeOfDay") {
+                        filterSection(title: "Time of Day", key: "timeOfDay", activeCount: timeOfDayActiveCount) {
                             timeOfDayContent
                         }
-                        filterSection(title: "Day of Week", key: "dayOfWeek") {
+                        filterSection(title: "Day of Week", key: "dayOfWeek", activeCount: dayOfWeekActiveCount) {
                             dayOfWeekContent
                         }
-                        filterSection(title: "Session Duration", key: "duration") {
+                        filterSection(title: "Session Duration", key: "duration", activeCount: durationActiveCount) {
                             durationContent
                         }
-                        filterSection(title: "Tables Played", key: "tables") {
+                        filterSection(title: "Tables Played", key: "tables", activeCount: tablesActiveCount) {
                             tablesContent
                         }
                     }
+                    .padding(.horizontal, 16)
+                    .padding(.top, 12)
                     .padding(.bottom, 80)
                 }
             }
@@ -835,7 +968,35 @@ struct AnalyticsFilterSheet: View {
 
     // MARK: - Accordion Section
 
-    func filterSection<Content: View>(title: String, key: String, @ViewBuilder content: () -> Content) -> some View {
+    var stakesActiveCount: Int {
+        guard !filterState.allStakes.isEmpty, filterState.selectedStakes != Set(filterState.allStakes) else { return 0 }
+        return filterState.selectedStakes.count
+    }
+
+    var timeOfDayActiveCount: Int {
+        let defaults = Set(["Morning", "Afternoon", "Evening", "Night"])
+        guard filterState.selectedTimesOfDay != defaults else { return 0 }
+        return filterState.selectedTimesOfDay.count
+    }
+
+    var dayOfWeekActiveCount: Int {
+        let defaults = Set(["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"])
+        guard filterState.selectedDaysOfWeek != defaults else { return 0 }
+        return filterState.selectedDaysOfWeek.count
+    }
+
+    var durationActiveCount: Int {
+        let defaults = Set(DurationBucket.allCases)
+        guard filterState.selectedDurations != defaults else { return 0 }
+        return filterState.selectedDurations.count
+    }
+
+    var tablesActiveCount: Int {
+        guard !filterState.allTables.isEmpty, filterState.selectedTables != Set(filterState.allTables) else { return 0 }
+        return filterState.selectedTables.count
+    }
+
+    func filterSection<Content: View>(title: String, key: String, activeCount: Int, @ViewBuilder content: () -> Content) -> some View {
         let isDisabled = sectionMatchesPrimaryAxis(key: key)
         return VStack(spacing: 0) {
             Button {
@@ -849,7 +1010,15 @@ struct AnalyticsFilterSheet: View {
                     Text(title)
                         .font(.subheadline)
                         .fontWeight(.semibold)
-                        .foregroundColor(isDisabled ? .appSecondary : .appPrimary)
+                        .foregroundColor(isDisabled ? .appSecondary : .white)
+                    if activeCount > 0 && !isDisabled {
+                        Text("\(activeCount)")
+                            .font(.system(size: 10, weight: .bold))
+                            .foregroundColor(.black)
+                            .frame(minWidth: 16, minHeight: 16)
+                            .background(Color.appGold)
+                            .clipShape(Circle())
+                    }
                     if isDisabled {
                         Text("Already used as primary breakdown")
                             .font(.system(size: 12))
@@ -875,8 +1044,10 @@ struct AnalyticsFilterSheet: View {
                     .transition(.opacity.combined(with: .move(edge: .top)))
             }
 
-            Divider().background(Color.appBorder)
         }
+        .background(Color.appSurface)
+        .cornerRadius(10)
+        .padding(.bottom, 8)
     }
 
     // MARK: - Section Contents
@@ -937,7 +1108,7 @@ struct AnalyticsFilterSheet: View {
 
     var dayOfWeekContent: some View {
         FlowLayout(spacing: 8) {
-            ForEach(["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"], id: \.self) { day in
+            ForEach(["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"], id: \.self) { day in
                 filterChip(label: day, isSelected: filterState.selectedDaysOfWeek.contains(day)) {
                     if filterState.selectedDaysOfWeek.contains(day) {
                         filterState.selectedDaysOfWeek.remove(day)
@@ -965,7 +1136,7 @@ struct AnalyticsFilterSheet: View {
 
     var tablesContent: some View {
         FlowLayout(spacing: 8) {
-            ForEach(["1", "2", "3", "4+"], id: \.self) { t in
+            ForEach(filterState.allTables, id: \.self) { t in
                 filterChip(label: t, isSelected: filterState.selectedTables.contains(t)) {
                     if filterState.selectedTables.contains(t) {
                         filterState.selectedTables.remove(t)
@@ -979,14 +1150,22 @@ struct AnalyticsFilterSheet: View {
 
     func filterChip(label: String, isSelected: Bool, action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            Text(label)
-                .font(.subheadline)
-                .foregroundColor(isSelected ? .black : .appSecondary)
-                .padding(.horizontal, 14)
-                .padding(.vertical, 8)
-                .background(isSelected ? Color.appGold : Color(hex: "#1A1A1A"))
-                .cornerRadius(20)
+            HStack(spacing: 6) {
+                Text(label)
+                    .font(.subheadline)
+                    .foregroundColor(isSelected ? .black : .white)
+                if isSelected {
+                    Image(systemName: "checkmark")
+                        .font(.system(size: 10, weight: .bold))
+                        .foregroundColor(.black)
+                }
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 8)
+            .background(isSelected ? Color.appGold : Color(hex: "#1A1A1A"))
+            .cornerRadius(20)
         }
+        .buttonStyle(.plain)
     }
 
     var sheetFooter: some View {

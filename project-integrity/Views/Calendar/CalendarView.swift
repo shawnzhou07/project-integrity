@@ -64,6 +64,27 @@ enum CalendarSessionItem: Identifiable {
         case .live(let s): return s.locationEntity?.displayName ?? s.location ?? "Live"
         }
     }
+
+    var isVerified: Bool {
+        switch self {
+        case .online(let s): return s.isVerified
+        case .live(let s): return s.isVerified
+        }
+    }
+
+    var isUnverified: Bool {
+        switch self {
+        case .online(let s): return !s.isVerified && s.endTime != nil
+        case .live(let s): return !s.isVerified && s.endTime != nil
+        }
+    }
+
+    var icon: String {
+        switch self {
+        case .online: return "desktopcomputer"
+        case .live: return "building.columns"
+        }
+    }
 }
 
 // MARK: - Day aggregate for calendar
@@ -629,45 +650,39 @@ struct CalendarView: View {
             NavigationLink {
                 OnlineSessionDetailView(session: s)
             } label: {
-                sessionRowLabel(item: item)
+                SessionRowView(
+                    icon: item.icon,
+                    title: item.siteOrLocationName,
+                    subtitle: item.gameTypeBlinds,
+                    duration: item.computedDuration,
+                    netResult: item.netProfitLossBase,
+                    currency: baseCurrency,
+                    isActive: s.isActive,
+                    isUnverified: item.isUnverified,
+                    isVerified: item.isVerified,
+                    showDate: false
+                )
             }
             .buttonStyle(.plain)
         case .live(let s):
             NavigationLink {
                 LiveSessionDetailView(session: s)
             } label: {
-                sessionRowLabel(item: item)
+                SessionRowView(
+                    icon: item.icon,
+                    title: item.siteOrLocationName,
+                    subtitle: item.gameTypeBlinds,
+                    duration: item.computedDuration,
+                    netResult: item.netProfitLossBase,
+                    currency: baseCurrency,
+                    isActive: s.isActive,
+                    isUnverified: item.isUnverified,
+                    isVerified: item.isVerified,
+                    showDate: false
+                )
             }
             .buttonStyle(.plain)
         }
-    }
-
-    private func sessionRowLabel(item: CalendarSessionItem) -> some View {
-        HStack {
-            Image(systemName: item.isLive ? "building.columns" : "desktopcomputer")
-                .foregroundColor(goldColor)
-                .font(.system(size: 18))
-            VStack(alignment: .leading, spacing: 2) {
-                Text(item.gameTypeBlinds)
-                    .font(.subheadline)
-                    .foregroundColor(.white)
-                Text(item.siteOrLocationName)
-                    .font(.caption)
-                    .foregroundColor(grayDim)
-                Text(AppFormatter.duration(item.computedDuration))
-                    .font(.caption)
-                    .foregroundColor(grayDim)
-            }
-            Spacer()
-            Text(AppFormatter.currencySigned(item.netProfitLossBase, code: baseCurrency))
-                .font(.subheadline)
-                .fontWeight(.medium)
-                .foregroundColor(valueColor(item.netProfitLossBase))
-        }
-        .padding(12)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color(hex: "#1A1A1A"))
-        .cornerRadius(10)
     }
 }
 

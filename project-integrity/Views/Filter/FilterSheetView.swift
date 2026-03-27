@@ -113,7 +113,7 @@ struct FilterSheetView: View {
                 Text(title)
                     .font(.subheadline)
                     .fontWeight(.semibold)
-                    .foregroundColor(disabled ? .appSecondary : .appGold)
+                    .foregroundColor(disabled ? .appSecondary : .appPrimary)
                 if activeCount > 0 && !disabled {
                     Text("\(activeCount)")
                         .font(.system(size: 10, weight: .bold))
@@ -126,7 +126,7 @@ struct FilterSheetView: View {
                 Image(systemName: "chevron.right")
                     .font(.caption)
                     .fontWeight(.semibold)
-                    .foregroundColor(disabled ? Color.appSecondary.opacity(0.4) : .appGold)
+                    .foregroundColor(disabled ? Color.appSecondary.opacity(0.4) : .appSecondary)
                     .rotationEffect(.degrees(openSection == id ? 90 : 0))
                     .animation(.easeInOut(duration: 0.2), value: openSection)
             }
@@ -564,27 +564,25 @@ struct FilterNavBarButton: View {
 
     var body: some View {
         Button(action: action) {
-            ZStack(alignment: .topTrailing) {
-                ZStack {
-                    Circle()
-                        .fill(Color.clear)
-                        .frame(width: 36, height: 36)
-                    Image(systemName: "line.3.horizontal.decrease")
-                        .font(.system(size: 16, weight: .semibold))
-                        .foregroundColor(.appGold)
-                }
-                if activeCount > 0 {
-                    Text("\(activeCount)")
-                        .font(.system(size: 10, weight: .bold))
-                        .foregroundColor(.black)
-                        .frame(minWidth: 15, minHeight: 15)
-                        .background(Color.appGold.opacity(1))
-                        .clipShape(Circle())
-                        // Keep badge inside nav-bar bounds to avoid iOS clipping.
-                        .offset(x: 5, y: 2)
-                }
+            Image(systemName: "line.3.horizontal.decrease")
+                .font(.system(size: 16, weight: .semibold))
+                .foregroundColor(.appGold)
+                .frame(width: 36, height: 36)
+        }
+        .overlay(alignment: .topTrailing) {
+            if activeCount > 0 {
+                Text("\(activeCount)")
+                    .font(.system(size: 11, weight: .bold))
+                    .foregroundColor(.black)
+                    .frame(width: 20, height: 20)
+                    .background(
+                        Circle().fill(
+                            Color(red: 201.0 / 255.0, green: 180.0 / 255.0, blue: 122.0 / 255.0, opacity: 1.0)
+                        )
+                    )
+                    .compositingGroup()
+                    .offset(CGSize(width: -3, height: 2))
             }
-            .frame(width: 40, height: 40, alignment: .center)
         }
     }
 }

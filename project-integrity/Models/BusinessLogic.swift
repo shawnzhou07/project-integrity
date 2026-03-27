@@ -159,6 +159,18 @@ extension Platform {
         return totalWithdrawalsRequestedPlatform + currentBalance - totalDepositsReceivedPlatform
     }
 
+    /// Weighted average deposit rate: base currency sent / platform currency received across all deposits.
+    /// Returns 1.0 when platform currency equals base currency or when no deposits exist.
+    var weightedAvgDepositRate: Double {
+        let baseCurrencyCode = UserDefaults.standard.string(forKey: "baseCurrency") ?? "CAD"
+        let platformCurrencyCode = currency ?? "USD"
+        guard platformCurrencyCode != baseCurrencyCode else { return 1.0 }
+        let totalSentBase = depositsArray.reduce(0.0) { $0 + $1.amountSent }
+        let totalReceivedPlatform = depositsArray.reduce(0.0) { $0 + $1.amountReceived }
+        guard totalReceivedPlatform > 0 else { return 1.0 }
+        return totalSentBase / totalReceivedPlatform
+    }
+
     var displayName: String { name ?? "Unknown Platform" }
     var displayCurrency: String { currency ?? "USD" }
 }
@@ -313,7 +325,7 @@ struct StatsResult {
     }
 
     var avgBuyIn: Double {
-        buyInSessionCount > 0 ? totalBuyIn / Double(buyInSessionCount) : 0
+        sessionCount > 0 ? totalBuyIn / Double(sessionCount) : 0
     }
 
     var winRate: Double {
@@ -393,6 +405,13 @@ func computeStats(
         result.sessionCount += 1
         if session.netProfitLoss > 0 { result.winCount += 1 } else { result.loseCount += 1 }
         result.totalBBWon += session.bbWon
+        // Online buy-in: effectiveBlind × 100 × tables, converted to base via platform weighted rate
+        let effectiveBlind = session.straddle > 0 ? session.straddle : session.bigBlind
+        if effectiveBlind > 0 {
+            let sessionBuyIn = effectiveBlind * 100.0 * Double(max(Int(session.tables), 1))
+            let rate = session.platform?.weightedAvgDepositRate ?? 1.0
+            result.totalBuyIn += sessionBuyIn * rate
+        }
         if netBase > result.biggestWin { result.biggestWin = netBase }
         if netBase < result.biggestLoss { result.biggestLoss = netBase }
         if session.computedDuration > result.longestSessionHours { result.longestSessionHours = session.computedDuration }
@@ -406,6 +425,7 @@ func computeStats(
         result.sessionCount += 1
         if session.netResult > 0 { result.winCount += 1 } else { result.loseCount += 1 }
         result.totalBBWon += session.bbWon
+        // Live buy-in: session.buyIn converted to base currency
         let buyInBase: Double = session.exchangeRateBuyIn > 0
             ? session.buyIn * session.exchangeRateBuyIn
             : session.buyIn * (session.exchangeRateToBase > 0 ? session.exchangeRateToBase : 1.0)
@@ -474,6 +494,13 @@ func computeStats(
         result.sessionCount += 1
         if session.netProfitLoss > 0 { result.winCount += 1 } else { result.loseCount += 1 }
         result.totalBBWon += session.bbWon
+        // Online buy-in: effectiveBlind × 100 × tables, converted to base via platform weighted rate
+        let effectiveBlind = session.straddle > 0 ? session.straddle : session.bigBlind
+        if effectiveBlind > 0 {
+            let sessionBuyIn = effectiveBlind * 100.0 * Double(max(Int(session.tables), 1))
+            let rate = session.platform?.weightedAvgDepositRate ?? 1.0
+            result.totalBuyIn += sessionBuyIn * rate
+        }
         if netBase > result.biggestWin { result.biggestWin = netBase }
         if netBase < result.biggestLoss { result.biggestLoss = netBase }
         if session.computedDuration > result.longestSessionHours { result.longestSessionHours = session.computedDuration }
@@ -487,6 +514,7 @@ func computeStats(
         result.sessionCount += 1
         if session.netResult > 0 { result.winCount += 1 } else { result.loseCount += 1 }
         result.totalBBWon += session.bbWon
+        // Live buy-in: session.buyIn converted to base currency
         let buyInBase: Double = session.exchangeRateBuyIn > 0
             ? session.buyIn * session.exchangeRateBuyIn
             : session.buyIn * (session.exchangeRateToBase > 0 ? session.exchangeRateToBase : 1.0)

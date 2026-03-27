@@ -350,3 +350,56 @@ name = "Balance Adjustment"
 date = now
 ```
 This brings the platform balance in line with what the user entered, without requiring them to trace the discrepancy source.
+
+---
+
+## Average Buy-In Calculation
+
+**Computed in:** `BusinessLogic.swift` → `computeStats()` → `StatsResult.avgBuyIn`
+**Displayed in:** Statistics screen "Avg Buy In" metric
+
+### Live Cash Sessions
+Buy-in = `session.buyIn` converted to base currency:
+```
+buyInBase = session.buyIn × session.exchangeRateBuyIn    (if exchangeRateBuyIn > 0)
+          = session.buyIn × session.exchangeRateToBase   (fallback if available)
+          = session.buyIn                                (same-currency sessions, rate = 1.0)
+```
+
+### Online Cash Sessions
+**Step 1 — Effective blind:**
+```
+effectiveBlind = session.straddle   (if straddle > 0)
+               = session.bigBlind   (otherwise)
+```
+
+**Step 2 — Standard buy-in in platform currency:**
+```
+standardBuyIn = effectiveBlind × 100
+```
+
+**Step 3 — Multi-table adjustment:**
+```
+sessionBuyIn = standardBuyIn × max(session.tables, 1)
+```
+
+**Step 4 — Convert to base currency:**
+```
+buyInBase = sessionBuyIn × platform.weightedAvgDepositRate
+```
+Where `weightedAvgDepositRate = Σ deposits.amountSent / Σ deposits.amountReceived` (base ÷ platform currency). Returns 1.0 for same-currency platforms or platforms with no deposits.
+
+### Examples
+| Session | Blinds | Straddle | Tables | Effective Blind | Platform Buy-In | Notes |
+|---------|--------|----------|--------|----------------|----------------|-------|
+| Online | 0.10/0.20 | 0.40 | 1 | 0.40 | 40 USD | Straddle used |
+| Online | 0.30/0.50 | — | 2 | 0.50 | 100 USD | 2 tables |
+| Online | 0.25/0.50 | — | 1 | 0.50 | 50 USD | Standard |
+
+### Average Formula
+```
+avgBuyIn = Σ buyInBase (all sessions after filters) / sessionCount
+```
+Sessions where `effectiveBlind == 0` contribute 0 to the numerator but still count in the denominator.
+
+This calculation is used in Statistics screen "Avg Buy In" metric and must be consistent everywhere buy-in is referenced in calculations.

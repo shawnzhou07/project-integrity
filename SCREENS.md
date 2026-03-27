@@ -77,7 +77,9 @@
 |-------|----------|
 | Active | Green filled circle (10pt) top-left of session icon; elapsed timer shown |
 | Unverified (completed) | Gray `questionmark.circle.fill` beside title |
-| Verified | Gold border on row background card |
+| Verified | 3pt gold (#C9B47A) left stripe on card |
+
+Session rows use the shared `SessionRowView` component (`showDate: true`). Any visual changes to session rows must be made in `SessionRowView` only — never in the list view directly.
 
 ### Alerts
 - **Active Session:** "You have an active session in progress." — OK only
@@ -319,8 +321,29 @@ If entered `balanceBefore` differs from `platform.currentBalance` by > 0.01, an 
 ### Features
 - Monthly calendar heatmap showing net result per day
 - Smart number formatting: max 3 significant digits with k/m suffix, trailing zeros stripped
-- Tap day → session list for that day
+- Tap day → session list for that day (day detail sheet)
 - Swipe left/right to navigate months
+
+### Calendar Day Detail Sheet
+Session rows use the shared `SessionRowView` component (`showDate: false`). The date column is hidden since the date context is already provided by the tapped calendar day. Session appearance is always identical to the Sessions List screen.
+
+---
+
+## Shared Components
+
+### SessionRowView
+**File:** `Views/Sessions/SessionsListView.swift`
+**Used in:** `SessionsListView`, `CalendarView` (day detail sheet)
+
+Single source of truth for session row appearance. Any visual change to how a session row looks must be made here — never duplicated in individual screens.
+
+| Parameter | Type | Purpose |
+|-----------|------|---------|
+| `showDate` | `Bool` | When `true`: renders a 44pt left date column (month abbr + day number). When `false`: card occupies full width. |
+| `isVerified` | `Bool` | When `true`: shows 3pt gold left stripe on card edge. |
+| `isUnverified` | `Bool` | When `true`: shows `questionmark.circle.fill` beside title. |
+
+**Layout:** Card background #0D0D0D, corner radius 12, ~64pt height. Platform/location name (white 15pt semibold), game type + stakes (gray 13pt), net result (green/red 15pt semibold right-aligned), duration (gray 12pt right-aligned). Card padding 12pt horizontal, 10pt vertical.
 
 ---
 
