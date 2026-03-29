@@ -2,6 +2,7 @@
 // 📝 Update relevant .md docs after making changes (except CHANGELOG.md which updates per build). See README.md Documentation Maintenance section.
 import SwiftUI
 import CoreData
+import Combine
 
 struct PlatformsListView: View {
     @Environment(\.managedObjectContext) private var viewContext
@@ -36,7 +37,6 @@ struct PlatformsListView: View {
     @State private var externalWithdrawalPlatform: Platform? = nil
     @State private var showExternalDeposit = false
     @State private var showExternalWithdrawal = false
-    @State private var refreshID = UUID()
     @State private var showPlatformSettingsSheet = false
     @State private var platformForSettings: Platform? = nil
 
@@ -85,7 +85,6 @@ struct PlatformsListView: View {
                 }
             }
         }
-        .id(refreshID)
         .navigationTitle("Platforms")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
@@ -102,16 +101,14 @@ struct PlatformsListView: View {
             AddPlatformView()
         }
         .sheet(isPresented: $showExternalDeposit, onDismiss: {
-            viewContext.refreshAllObjects()
-            refreshID = UUID()
+            refreshPlatformsForList()
         }) {
             if let p = externalDepositPlatform {
                 DepositFormView(platform: p)
             }
         }
         .sheet(isPresented: $showExternalWithdrawal, onDismiss: {
-            viewContext.refreshAllObjects()
-            refreshID = UUID()
+            refreshPlatformsForList()
         }) {
             if let p = externalWithdrawalPlatform {
                 WithdrawalFormView(platform: p)
@@ -123,21 +120,16 @@ struct PlatformsListView: View {
             }
         }
         .onAppear {
-            viewContext.refreshAllObjects()
-            refreshID = UUID()
             handleCoordinatorTriggers()
         }
         .onReceive(NotificationCenter.default.publisher(for: Notification.Name("sessionVerified"))) { _ in
-            viewContext.refreshAllObjects()
-            refreshID = UUID()
+            refreshPlatformsForList()
         }
         .onReceive(NotificationCenter.default.publisher(for: Notification.Name("platformDataChanged"))) { _ in
-            viewContext.refreshAllObjects()
-            refreshID = UUID()
+            refreshPlatformsForList()
         }
         .onReceive(NotificationCenter.default.publisher(for: Notification.Name("balanceUpdated"))) { _ in
-            viewContext.refreshAllObjects()
-            refreshID = UUID()
+            refreshPlatformsForList()
         }
         .onChange(of: coordinator.shouldOpenAddPlatform) { _, v in
             if v { showAddPlatform = true; coordinator.shouldOpenAddPlatform = false }
@@ -162,7 +154,15 @@ struct PlatformsListView: View {
 
     func performRefresh() async {
         viewContext.refreshAllObjects()
-        refreshID = UUID()
+        refreshPlatformsForList()
+    }
+
+    /// Updates list rows when balances / withdrawals change without recreating the entire view hierarchy (`refreshAllObjects` + `id()` caused severe lag).
+    private func refreshPlatformsForList() {
+        for p in platforms {
+            viewContext.refresh(p, mergeChanges: true)
+            p.objectWillChange.send()
+        }
     }
 
     func handleCoordinatorTriggers() {
@@ -218,7 +218,7 @@ struct PlatformsListView: View {
 }
 
 struct PlatformRowView: View {
-    let platform: Platform
+    @ObservedObject var platform: Platform
     let baseCurrency: String
 
     var isSameCurrency: Bool { platform.displayCurrency == baseCurrency }

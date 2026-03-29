@@ -2,6 +2,7 @@
 // 📝 Update relevant .md docs after making changes (except CHANGELOG.md which updates per build). See README.md Documentation Maintenance section.
 import SwiftUI
 import CoreData
+import Combine
 
 struct PlatformDetailView: View {
     @ObservedObject var platform: Platform
@@ -54,7 +55,8 @@ struct PlatformDetailView: View {
     }
 
     func performRefresh() async {
-        viewContext.refreshAllObjects()
+        viewContext.refresh(platform, mergeChanges: true)
+        platform.objectWillChange.send()
     }
 
     var body: some View {
@@ -613,7 +615,10 @@ struct DepositDetailSheet: View {
                             Button {
                                 deposit.method = selectedMethod
                                 try? viewContext.save()
-                                viewContext.refreshAllObjects()
+                                if let p = deposit.platform {
+                                    viewContext.refresh(p, mergeChanges: true)
+                                    p.objectWillChange.send()
+                                }
                                 NotificationCenter.default.post(name: Notification.Name("platformDataChanged"), object: nil)
                                 dismiss()
                             } label: {
@@ -744,7 +749,10 @@ struct WithdrawalDetailSheet: View {
                             Button {
                                 withdrawal.method = selectedMethod
                                 try? viewContext.save()
-                                viewContext.refreshAllObjects()
+                                if let p = withdrawal.platform {
+                                    viewContext.refresh(p, mergeChanges: true)
+                                    p.objectWillChange.send()
+                                }
                                 NotificationCenter.default.post(name: Notification.Name("platformDataChanged"), object: nil)
                                 dismiss()
                             } label: {
@@ -812,9 +820,13 @@ struct WithdrawalDetailSheet: View {
         }
         .alert("Remove Withdrawal?", isPresented: $showRemoveAlert) {
             Button("Remove", role: .destructive) {
+                let plat = withdrawal.platform
                 viewContext.delete(withdrawal)
                 try? viewContext.save()
-                viewContext.refreshAllObjects()
+                if let p = plat {
+                    viewContext.refresh(p, mergeChanges: true)
+                    p.objectWillChange.send()
+                }
                 NotificationCenter.default.post(name: Notification.Name("platformDataChanged"), object: nil)
                 dismiss()
             }
@@ -1093,11 +1105,11 @@ struct MarkReceivedSheet: View {
         if !notes.isEmpty {
             withdrawal.notes = notes
         }
-        if let platform = withdrawal.platform {
-            viewContext.refresh(platform, mergeChanges: true)
-        }
         try? viewContext.save()
-        viewContext.refreshAllObjects()
+        if let p = withdrawal.platform {
+            viewContext.refresh(p, mergeChanges: true)
+            p.objectWillChange.send()
+        }
         NotificationCenter.default.post(name: Notification.Name("platformDataChanged"), object: nil)
         dismiss()
     }

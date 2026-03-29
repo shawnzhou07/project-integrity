@@ -192,7 +192,6 @@ struct CalendarView: View {
     @State private var selectedDay: Date? = nil
     @State private var showMonthPicker = false
     @State private var showYearPicker = false
-    @State private var refreshID = UUID()
     @State private var slideForward = true
 
     private let cal = Calendar.current
@@ -266,7 +265,6 @@ struct CalendarView: View {
                     }
             }
         }
-        .id(refreshID)
         .navigationTitle("Calendar")
         .navigationBarTitleDisplayMode(.inline)
         .background(bgBlack)
@@ -530,9 +528,7 @@ struct CalendarView: View {
     }
 
     func performRefresh() async {
-        viewContext.refreshAllObjects()
         recomputeDayStats()
-        refreshID = UUID()
     }
 
     private struct SelectedDayWrapper: Identifiable {
@@ -548,7 +544,7 @@ struct CalendarView: View {
     }
 
     private func dayDetailSheet(for day: SelectedDayWrapper) -> some View {
-        let date = day.date
+        let date = cal.startOfDay(for: day.date)
         let stats = dayStats[date] ?? DayStats()
         let sessions = stats.sessions
 
@@ -614,8 +610,8 @@ struct CalendarView: View {
                         .background(cardBg)
                         .cornerRadius(12)
 
-                        if sessions.count > 1 {
-                            Text("Sessions")
+                        if !sessions.isEmpty {
+                            Text(sessions.count == 1 ? "Session" : "Sessions")
                                 .font(.headline)
                                 .foregroundColor(goldColor)
                             VStack(spacing: 8) {
