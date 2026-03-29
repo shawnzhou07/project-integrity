@@ -339,48 +339,29 @@ struct StatsView: View {
                     .background(Color.appSurface).cornerRadius(8)
             } else {
                 ForEach(Array(platforms)) { platform in
-                    HStack(spacing: 0) {
-                        NavigationLink {
-                            PlatformDetailView(platform: platform)
-                                .environment(\.managedObjectContext, viewContext)
-                        } label: {
-                            HStack {
-                                VStack(alignment: .leading, spacing: 3) {
-                                    Text(platform.displayName)
-                                        .font(.system(size: 15, weight: .semibold))
-                                        .foregroundColor(.white)
-                                    Text(AppFormatter.currencySigned(platform.netResult))
-                                        .font(.system(size: 14, weight: .medium))
-                                        .foregroundColor(platform.netResult.profitColor)
-                                }
-                                Spacer()
+                    NavigationLink {
+                        PlatformDetailView(platform: platform)
+                            .environment(\.managedObjectContext, viewContext)
+                    } label: {
+                        HStack {
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text(platform.displayName)
+                                    .font(.system(size: 15, weight: .semibold))
+                                    .foregroundColor(.white)
+                                Text(AppFormatter.currencySigned(platform.netResult))
+                                    .font(.system(size: 14, weight: .medium))
+                                    .foregroundColor(platform.netResult.profitColor)
                             }
-                            .contentShape(Rectangle())
+                            Spacer()
+                            Image(systemName: "chevron.right")
+                                .font(.caption)
+                                .foregroundColor(.appSecondary)
                         }
-                        .buttonStyle(.plain)
-
-                        NavigationLink {
-                            OnlinePlatformAnalyticsView(platform: platform)
-                                .environment(\.managedObjectContext, viewContext)
-                        } label: {
-                            HStack(spacing: 4) {
-                                Text("Analytics")
-                                    .font(.system(size: 13, weight: .medium))
-                                    .foregroundColor(Color(hex: "#C9B47A"))
-                                Image(systemName: "chevron.right")
-                                    .font(.system(size: 11, weight: .medium))
-                                    .foregroundColor(Color(hex: "#C9B47A"))
-                            }
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 6)
-                            .background(Color(hex: "#1A1A1A"))
-                            .cornerRadius(8)
-                        }
-                        .buttonStyle(.plain)
+                        .padding()
+                        .background(Color.appSurface)
+                        .cornerRadius(8)
                     }
-                    .padding()
-                    .background(Color.appSurface)
-                    .cornerRadius(8)
+                    .buttonStyle(.plain)
                 }
             }
         }

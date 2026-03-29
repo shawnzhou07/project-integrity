@@ -96,7 +96,7 @@ struct AddAdjustmentView: View {
             Button {
                 dismiss()
                 coordinator.shouldOpenAddPlatform = true
-                coordinator.selectedTab = 2
+                coordinator.selectedTab = 3
             } label: {
                 Text("Go to Platforms")
                     .font(.subheadline)

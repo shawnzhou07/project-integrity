@@ -118,7 +118,7 @@ struct OnlineSessionEntryView: View {
             .alert("Platform Required", isPresented: $showNoPlatformAlert) {
                 Button("Go to Platforms") {
                     coordinator.shouldOpenAddPlatform = true
-                    coordinator.selectedTab = 2
+                    coordinator.selectedTab = 3
                     coordinator.dismissForm()
                 }
                 Button("Cancel", role: .cancel) {}
@@ -132,7 +132,7 @@ struct OnlineSessionEntryView: View {
                         if let platform = selectedPlatform {
                             coordinator.platformIDForDeposit = platform.objectID
                         }
-                        coordinator.selectedTab = 2
+                        coordinator.selectedTab = 3
                         coordinator.dismissForm()
                     }
                     Button("Log Adjustment") {
@@ -140,7 +140,7 @@ struct OnlineSessionEntryView: View {
                         if let platform = selectedPlatform {
                             coordinator.adjustmentPlatformID = platform.objectID
                         }
-                        coordinator.selectedTab = 3
+                        coordinator.selectedTab = 4
                         coordinator.dismissForm()
                     }
                 } else {
@@ -149,7 +149,7 @@ struct OnlineSessionEntryView: View {
                         if let platform = selectedPlatform {
                             coordinator.platformIDForWithdrawal = platform.objectID
                         }
-                        coordinator.selectedTab = 2
+                        coordinator.selectedTab = 3
                         coordinator.dismissForm()
                     }
                     Button("Log Adjustment") {
@@ -157,7 +157,7 @@ struct OnlineSessionEntryView: View {
                         if let platform = selectedPlatform {
                             coordinator.adjustmentPlatformID = platform.objectID
                         }
-                        coordinator.selectedTab = 3
+                        coordinator.selectedTab = 4
                         coordinator.dismissForm()
                     }
                 }
@@ -352,7 +352,7 @@ struct OnlineSessionEntryView: View {
             PlatformPickerSheet(platforms: Array(platforms), selected: $selectedPlatform, onCreatePlatform: {
                 showPlatformPicker = false
                 coordinator.shouldOpenAddPlatform = true
-                coordinator.selectedTab = 2
+                coordinator.selectedTab = 3
                 coordinator.dismissForm()
             }) {
                 autoSaveIfActive()

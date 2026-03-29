@@ -4,10 +4,33 @@ import SwiftUI
 import CoreData
 import Combine
 
+// MARK: - Analytics Source
+
+enum AnalyticsSource: Equatable {
+    case live
+    case platform(Platform)
+
+    static func == (lhs: AnalyticsSource, rhs: AnalyticsSource) -> Bool {
+        switch (lhs, rhs) {
+        case (.live, .live): return true
+        case (.platform(let a), .platform(let b)): return a.objectID == b.objectID
+        default: return false
+        }
+    }
+
+    var persistenceKey: String {
+        switch self {
+        case .live: return "live"
+        case .platform(let p): return p.id?.uuidString ?? "live"
+        }
+    }
+}
+
 // MARK: - Breakdown Axis
 
 enum AnalyticsAxis: String, CaseIterable {
     case stakes = "Stakes"
+    case location = "Location"
     case timeOfDay = "Time of Day"
     case dayOfWeek = "Day of Week"
     case sessionDuration = "Session Duration"
@@ -16,11 +39,20 @@ enum AnalyticsAxis: String, CaseIterable {
     var columnLabel: String {
         switch self {
         case .stakes: return "Stake"
+        case .location: return "Location"
         case .timeOfDay: return "Time"
         case .dayOfWeek: return "Day"
         case .sessionDuration: return "Duration"
         case .tablesPlayed: return "Tables"
         }
+    }
+
+    static var liveAxes: [AnalyticsAxis] {
+        [.stakes, .location, .timeOfDay, .dayOfWeek, .sessionDuration]
+    }
+
+    static var onlineAxes: [AnalyticsAxis] {
+        [.stakes, .timeOfDay, .dayOfWeek, .sessionDuration, .tablesPlayed]
     }
 }
 
@@ -89,17 +121,14 @@ struct AnalyticsRowData: Identifiable {
         guard totalHands > 0 else { return nil }
         return (totalBBWon / Double(totalHands)) * 100
     }
-
     var dollarPer100: Double? {
         guard totalHands > 0 else { return nil }
         return (totalProfitBase / Double(totalHands)) * 100
     }
-
     var bbPerHour: Double? {
         guard totalHours > 0 else { return nil }
         return totalBBWon / totalHours
     }
-
     var dollarPerHour: Double? {
         guard totalHours > 0 else { return nil }
         return totalProfitBase / totalHours
@@ -108,81 +137,66 @@ struct AnalyticsRowData: Identifiable {
 
 // MARK: - Analytics Filter State
 
-class OnlineAnalyticsFilterState: ObservableObject {
+/// Shared filter state for `AnalyticsView` (one instance for the Analytics tab lifetime).
+/// Secondary filters are **not** persisted: they reset whenever the data source changes (Live / platform) and whenever the user leaves and re-enters the Analytics tab.
+final class AnalyticsFilterState: ObservableObject {
+    private static let fullTimesOfDay = Set(["Morning", "Afternoon", "Evening", "Night"])
+    private static let fullDaysOfWeek = Set(["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"])
+
     @Published var dateRange: AnalyticsDateRange = .allTime
     @Published var selectedStakes: Set<String> = []
     @Published var allStakes: [String] = []
-    @Published var allTables: [String] = []
-    @Published var selectedTimesOfDay: Set<String> = Set(["Morning", "Afternoon", "Evening", "Night"])
-    @Published var selectedDaysOfWeek: Set<String> = Set(["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"])
+    @Published var allTables: [Int] = []
+    @Published var allLocationKeys: [String] = []
+    @Published var locationLabelsByKey: [String: String] = [:]
+    @Published var selectedTimesOfDay: Set<String> = AnalyticsFilterState.fullTimesOfDay
+    @Published var selectedDaysOfWeek: Set<String> = AnalyticsFilterState.fullDaysOfWeek
     @Published var selectedDurations: Set<DurationBucket> = Set(DurationBucket.allCases)
-    @Published var selectedTables: Set<String> = []
+    /// Tables played (online source only when filtering); counts match `OnlineCash.tables`.
+    @Published var selectedTablesPlayed: Set<Int> = []
+    /// Stable keys: `Location.id` UUID string, or `legacy:<freeform name>` for sessions without a linked `Location`.
+    @Published var selectedLocationKeys: Set<String> = []
 
-    var activeFilterCount: Int {
+    /// All dimensions set to “no filter” for the current `all*` metadata (must run after `allStakes` / `allTables` / `allLocationKeys` are updated for the active source).
+    func resetSelectionsToNeutral() {
+        dateRange = .allTime
+        selectedTimesOfDay = AnalyticsFilterState.fullTimesOfDay
+        selectedDaysOfWeek = AnalyticsFilterState.fullDaysOfWeek
+        selectedDurations = Set(DurationBucket.allCases)
+        selectedStakes = allStakes.isEmpty ? [] : Set(allStakes)
+        selectedLocationKeys = allLocationKeys.isEmpty ? [] : Set(allLocationKeys)
+        selectedTablesPlayed = allTables.isEmpty ? [] : Set(allTables)
+    }
+
+    /// Badge and "N Filters" row: only counts filters that apply to the current analytics source.
+    func activeFilterCount(for source: AnalyticsSource) -> Int {
         var count = 0
         if dateRange != .allTime { count += 1 }
         if !allStakes.isEmpty && selectedStakes != Set(allStakes) { count += 1 }
-        if selectedTimesOfDay != Set(["Morning", "Afternoon", "Evening", "Night"]) { count += 1 }
-        if selectedDaysOfWeek != Set(["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]) { count += 1 }
+        if selectedTimesOfDay != AnalyticsFilterState.fullTimesOfDay { count += 1 }
+        if selectedDaysOfWeek != AnalyticsFilterState.fullDaysOfWeek { count += 1 }
         if selectedDurations != Set(DurationBucket.allCases) { count += 1 }
-        if !allTables.isEmpty && selectedTables != Set(allTables) { count += 1 }
+        switch source {
+        case .live:
+            if !allLocationKeys.isEmpty && selectedLocationKeys != Set(allLocationKeys) { count += 1 }
+        case .platform:
+            if !allTables.isEmpty && selectedTablesPlayed != Set(allTables) { count += 1 }
+        }
         return count
     }
 
-    var activeChips: [(label: String, key: String)] {
-        var chips: [(String, String)] = []
-        if dateRange != .allTime { chips.append((dateRange.rawValue, "dateRange")) }
-        if !allStakes.isEmpty && selectedStakes != Set(allStakes) {
-            chips.append(("Stakes filtered", "stakes"))
-        }
-        if selectedTimesOfDay != Set(["Morning", "Afternoon", "Evening", "Night"]) {
-            chips.append(("Times filtered", "times"))
-        }
-        if selectedDaysOfWeek != Set(["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]) {
-            chips.append(("Days filtered", "days"))
-        }
-        if selectedDurations != Set(DurationBucket.allCases) {
-            chips.append(("Duration filtered", "durations"))
-        }
-        if !allTables.isEmpty && selectedTables != Set(allTables) {
-            chips.append(("Tables filtered", "tables"))
-        }
-        return chips
-    }
-
-    func resetChip(key: String) {
-        switch key {
-        case "dateRange": dateRange = .allTime
-        case "stakes": selectedStakes = Set(allStakes)
-        case "times": selectedTimesOfDay = Set(["Morning", "Afternoon", "Evening", "Night"])
-        case "days": selectedDaysOfWeek = Set(["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"])
-        case "durations": selectedDurations = Set(DurationBucket.allCases)
-        case "tables": selectedTables = Set(allTables)
-        default: break
-        }
-    }
-
     func clearAll() {
-        dateRange = .allTime
-        selectedStakes = Set(allStakes)
-        selectedTimesOfDay = Set(["Morning", "Afternoon", "Evening", "Night"])
-        selectedDaysOfWeek = Set(["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"])
-        selectedDurations = Set(DurationBucket.allCases)
-        selectedTables = Set(allTables)
+        resetSelectionsToNeutral()
     }
 
     func clearFilterForAxis(_ axis: AnalyticsAxis) {
         switch axis {
-        case .stakes:
-            selectedStakes = Set(allStakes)
-        case .timeOfDay:
-            selectedTimesOfDay = Set(["Morning", "Afternoon", "Evening", "Night"])
-        case .dayOfWeek:
-            selectedDaysOfWeek = Set(["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"])
-        case .sessionDuration:
-            selectedDurations = Set(DurationBucket.allCases)
-        case .tablesPlayed:
-            selectedTables = Set(allTables)
+        case .stakes: selectedStakes = allStakes.isEmpty ? [] : Set(allStakes)
+        case .location: selectedLocationKeys = allLocationKeys.isEmpty ? [] : Set(allLocationKeys)
+        case .timeOfDay: selectedTimesOfDay = AnalyticsFilterState.fullTimesOfDay
+        case .dayOfWeek: selectedDaysOfWeek = AnalyticsFilterState.fullDaysOfWeek
+        case .sessionDuration: selectedDurations = Set(DurationBucket.allCases)
+        case .tablesPlayed: selectedTablesPlayed = allTables.isEmpty ? [] : Set(allTables)
         }
     }
 }
@@ -202,24 +216,30 @@ private struct AxisViewWidthKey: PreferenceKey {
     static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = nextValue() }
 }
 
-// MARK: - Main View
+// MARK: - Analytics View
 
-struct OnlinePlatformAnalyticsView: View {
-    let platform: Platform
+struct AnalyticsView: View {
     @Environment(\.managedObjectContext) private var viewContext
+    @EnvironmentObject private var coordinator: ActiveSessionCoordinator
+    @EnvironmentObject private var filterState: AnalyticsFilterState
     @AppStorage("baseCurrency") private var baseCurrency = "CAD"
+    @AppStorage("analyticsSelectedSource") private var savedSourceKey: String = "live"
 
-    @StateObject private var filterState = OnlineAnalyticsFilterState()
+    @State private var selectedSource: AnalyticsSource = .live
     @State private var selectedAxis: AnalyticsAxis = .stakes
     @State private var metricMode: MetricMode = .bb
     @State private var showFilterSheet = false
-    @State private var allSessions: [OnlineCash] = []
+    @State private var allLiveSessions: [LiveCash] = []
+    @State private var allOnlineSessions: [OnlineCash] = []
     @State private var refreshID = UUID()
 
     @Namespace private var toggleNamespace
     @State private var axisScrollOffset: CGFloat = 0
     @State private var axisContentWidth: CGFloat = 0
     @State private var axisContainerWidth: CGFloat = 0
+
+    @FetchRequest(sortDescriptors: [NSSortDescriptor(keyPath: \Platform.name, ascending: true)])
+    private var platforms: FetchedResults<Platform>
 
     @FetchRequest(
         sortDescriptors: [],
@@ -237,142 +257,218 @@ struct OnlinePlatformAnalyticsView: View {
         !activeLiveSessions.isEmpty || !activeOnlineSessions.isEmpty
     }
 
-    // MARK: Filtered + Grouped
+    var sortedPlatforms: [Platform] {
+        Array(platforms).sorted { p1, p2 in
+            let d1 = p1.onlineSessionsArray.compactMap(\.startTime).max() ?? .distantPast
+            let d2 = p2.onlineSessionsArray.compactMap(\.startTime).max() ?? .distantPast
+            return d1 > d2
+        }
+    }
 
-    var filteredSessions: [OnlineCash] {
-        allSessions.filter { session in
-            // Date range
+    var availableAxes: [AnalyticsAxis] {
+        switch selectedSource {
+        case .live: return AnalyticsAxis.liveAxes
+        case .platform: return AnalyticsAxis.onlineAxes
+        }
+    }
+
+    // MARK: - Filtered Sessions
+
+    var filteredLiveSessions: [LiveCash] {
+        allLiveSessions.filter { s in
             if let start = filterState.dateRange.startDate() {
-                guard let st = session.startTime, st >= start else { return false }
+                guard let st = s.startTime, st >= start else { return false }
             }
-            // Stakes
-            let stakeLabel = stakesLabel(for: session)
-            if !filterState.allStakes.isEmpty && !filterState.selectedStakes.contains(stakeLabel) {
-                return false
+            if !filterState.allStakes.isEmpty {
+                if !filterState.selectedStakes.contains(liveStakesLabel(for: s)) { return false }
             }
-            // Time of day
-            let tod = timeOfDayLabel(for: session)
-            if !filterState.selectedTimesOfDay.contains(tod) { return false }
-            // Day of week
-            let dow = dayOfWeekLabel(for: session)
-            if !filterState.selectedDaysOfWeek.contains(dow) { return false }
-            // Duration
-            let bucket = DurationBucket.bucket(for: sessionHours(session))
-            if !filterState.selectedDurations.contains(bucket) { return false }
-            // Tables
-            let tableLabel = tablesLabel(for: session)
-            if !filterState.selectedTables.contains(tableLabel) { return false }
+            if !filterState.allLocationKeys.isEmpty {
+                if !filterState.selectedLocationKeys.contains(liveLocationKey(for: s)) { return false }
+            }
+            if !filterState.selectedTimesOfDay.contains(timeOfDayLabel(forDate: s.startTime)) { return false }
+            if !filterState.selectedDaysOfWeek.contains(dayOfWeekLabel(forDate: s.startTime)) { return false }
+            if !filterState.selectedDurations.contains(DurationBucket.bucket(for: liveSessionHours(s))) { return false }
             return true
         }
     }
 
-    var summaryStats: (bb100: Double?, dollar100: Double?, bbHour: Double?, dollarHour: Double?, sessions: Int, hours: Double, hands: Int) {
-        let sessions = filteredSessions
-        let totalBBWon = sessions.reduce(0.0) { acc, s in
-            guard s.bigBlind > 0 else { return acc }
-            return acc + (s.netProfitLoss / s.bigBlind)
+    var filteredOnlineSessions: [OnlineCash] {
+        allOnlineSessions.filter { s in
+            if let start = filterState.dateRange.startDate() {
+                guard let st = s.startTime, st >= start else { return false }
+            }
+            if !filterState.allStakes.isEmpty {
+                if !filterState.selectedStakes.contains(onlineStakesLabel(for: s)) { return false }
+            }
+            if !filterState.selectedTimesOfDay.contains(timeOfDayLabel(forDate: s.startTime)) { return false }
+            if !filterState.selectedDaysOfWeek.contains(dayOfWeekLabel(forDate: s.startTime)) { return false }
+            if !filterState.selectedDurations.contains(DurationBucket.bucket(for: onlineSessionHours(s))) { return false }
+            if !filterState.allTables.isEmpty {
+                if !filterState.selectedTablesPlayed.contains(tablesCount(for: s)) { return false }
+            }
+            return true
         }
-        let totalHands = sessions.reduce(0) { $0 + Int($1.handsCount) }
-        let totalHours = sessions.reduce(0.0) { $0 + sessionHours($1) }
-        let totalProfit = sessions.reduce(0.0) { $0 + $1.netProfitLossBase }
-
-        let bb100: Double? = totalHands > 0 ? (totalBBWon / Double(totalHands)) * 100 : nil
-        let d100: Double? = totalHands > 0 ? (totalProfit / Double(totalHands)) * 100 : nil
-        let bbhr: Double? = totalHours > 0 ? totalBBWon / totalHours : nil
-        let dhr: Double? = totalHours > 0 ? totalProfit / totalHours : nil
-
-        return (bb100, d100, bbhr, dhr, sessions.count, totalHours, totalHands)
     }
 
-    var breakdownRows: [AnalyticsRowData] {
-        let sessions = filteredSessions
-        var groups: [String: [OnlineCash]] = [:]
+    // MARK: - Summary Stats
 
-        for session in sessions {
-            let key = groupKey(for: session)
-            groups[key, default: []].append(session)
-        }
-
-        var rows: [AnalyticsRowData] = []
-        for (label, group) in groups {
-            guard !group.isEmpty else { continue }
-            let totalBBWon = group.reduce(0.0) { acc, s in
+    var summaryStats: (bb100: Double?, dollar100: Double?, bbHour: Double?, dollarHour: Double?, sessions: Int, hours: Double, hands: Int) {
+        switch selectedSource {
+        case .live:
+            let sessions = filteredLiveSessions
+            let totalBBWon = sessions.reduce(0.0) { acc, s in
                 guard s.bigBlind > 0 else { return acc }
                 return acc + (s.netProfitLoss / s.bigBlind)
             }
-            let totalHands = group.reduce(0) { $0 + Int($1.handsCount) }
-            let totalHours = group.reduce(0.0) { $0 + sessionHours($1) }
-            let totalProfit = group.reduce(0.0) { $0 + $1.netProfitLossBase }
-            rows.append(AnalyticsRowData(
-                label: label,
-                sessionCount: group.count,
-                totalBBWon: totalBBWon,
-                totalHands: totalHands,
-                totalHours: totalHours,
-                totalProfitBase: totalProfit
-            ))
-        }
-
-        let rowByLabel = Dictionary(uniqueKeysWithValues: rows.map { ($0.label, $0) })
-        let orderedLabels: [String]
-        switch selectedAxis {
-        case .stakes:
-            orderedLabels = rowByLabel.keys.sorted { lhs, rhs in
-                stakeSortKey(lhs) < stakeSortKey(rhs)
+            let totalHands = sessions.reduce(0) { $0 + Int($1.handsCount) }
+            let totalHours = sessions.reduce(0.0) { $0 + liveSessionHours($1) }
+            let totalProfit = sessions.reduce(0.0) { $0 + $1.netProfitLossBase }
+            let bb100: Double? = totalHands > 0 ? (totalBBWon / Double(totalHands)) * 100 : nil
+            let d100: Double? = totalHands > 0 ? (totalProfit / Double(totalHands)) * 100 : nil
+            // BB/hour only meaningful for live when hands are tracked
+            let bbhr: Double? = totalHands > 0 && totalHours > 0 ? totalBBWon / totalHours : nil
+            let dhr: Double? = totalHours > 0 ? totalProfit / totalHours : nil
+            return (bb100, d100, bbhr, dhr, sessions.count, totalHours, totalHands)
+        case .platform:
+            let sessions = filteredOnlineSessions
+            let totalBBWon = sessions.reduce(0.0) { acc, s in
+                guard s.bigBlind > 0 else { return acc }
+                return acc + (s.netProfitLoss / s.bigBlind)
             }
-        case .timeOfDay:
-            let order = ["Morning", "Afternoon", "Evening", "Night"]
-            orderedLabels = order.filter { rowByLabel[$0] != nil }
-        case .dayOfWeek:
-            let order = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
-            orderedLabels = order.filter { rowByLabel[$0] != nil }
-        case .sessionDuration:
-            let order = DurationBucket.allCases.map(\.rawValue)
-            orderedLabels = order.filter { rowByLabel[$0] != nil }
-        case .tablesPlayed:
-            orderedLabels = rowByLabel.keys.sorted {
-                (Int($0) ?? Int.max) < (Int($1) ?? Int.max)
-            }
+            let totalHands = sessions.reduce(0) { $0 + Int($1.handsCount) }
+            let totalHours = sessions.reduce(0.0) { $0 + onlineSessionHours($1) }
+            let totalProfit = sessions.reduce(0.0) { $0 + $1.netProfitLossBase }
+            let bb100: Double? = totalHands > 0 ? (totalBBWon / Double(totalHands)) * 100 : nil
+            let d100: Double? = totalHands > 0 ? (totalProfit / Double(totalHands)) * 100 : nil
+            let bbhr: Double? = totalHours > 0 ? totalBBWon / totalHours : nil
+            let dhr: Double? = totalHours > 0 ? totalProfit / totalHours : nil
+            return (bb100, d100, bbhr, dhr, sessions.count, totalHours, totalHands)
         }
-        return orderedLabels.compactMap { rowByLabel[$0] }
     }
 
-    // MARK: Body
+    var hasNoSessions: Bool {
+        switch selectedSource {
+        case .live: return allLiveSessions.isEmpty && filterState.activeFilterCount(for: selectedSource) == 0
+        case .platform: return allOnlineSessions.isEmpty && filterState.activeFilterCount(for: selectedSource) == 0
+        }
+    }
+
+    var hasNoFilteredSessions: Bool {
+        switch selectedSource {
+        case .live: return filteredLiveSessions.isEmpty
+        case .platform: return filteredOnlineSessions.isEmpty
+        }
+    }
+
+    // MARK: - Breakdown Rows
+
+    var breakdownRows: [AnalyticsRowData] {
+        switch selectedSource {
+        case .live: return computeLiveBreakdown()
+        case .platform: return computeOnlineBreakdown()
+        }
+    }
+
+    private func computeLiveBreakdown() -> [AnalyticsRowData] {
+        var groups: [String: [LiveCash]] = [:]
+        for s in filteredLiveSessions { groups[liveGroupKey(for: s), default: []].append(s) }
+        var rows: [AnalyticsRowData] = []
+        for (label, group) in groups {
+            guard !group.isEmpty else { continue }
+            let bbWon = group.reduce(0.0) { acc, s in
+                guard s.bigBlind > 0 else { return acc }
+                return acc + (s.netProfitLoss / s.bigBlind)
+            }
+            rows.append(AnalyticsRowData(
+                label: label, sessionCount: group.count,
+                totalBBWon: bbWon,
+                totalHands: group.reduce(0) { $0 + Int($1.handsCount) },
+                totalHours: group.reduce(0.0) { $0 + liveSessionHours($1) },
+                totalProfitBase: group.reduce(0.0) { $0 + $1.netProfitLossBase }
+            ))
+        }
+        return sortRows(rows)
+    }
+
+    private func computeOnlineBreakdown() -> [AnalyticsRowData] {
+        var groups: [String: [OnlineCash]] = [:]
+        for s in filteredOnlineSessions { groups[onlineGroupKey(for: s), default: []].append(s) }
+        var rows: [AnalyticsRowData] = []
+        for (label, group) in groups {
+            guard !group.isEmpty else { continue }
+            let bbWon = group.reduce(0.0) { acc, s in
+                guard s.bigBlind > 0 else { return acc }
+                return acc + (s.netProfitLoss / s.bigBlind)
+            }
+            rows.append(AnalyticsRowData(
+                label: label, sessionCount: group.count,
+                totalBBWon: bbWon,
+                totalHands: group.reduce(0) { $0 + Int($1.handsCount) },
+                totalHours: group.reduce(0.0) { $0 + onlineSessionHours($1) },
+                totalProfitBase: group.reduce(0.0) { $0 + $1.netProfitLossBase }
+            ))
+        }
+        return sortRows(rows)
+    }
+
+    private func sortRows(_ rows: [AnalyticsRowData]) -> [AnalyticsRowData] {
+        let byLabel = Dictionary(uniqueKeysWithValues: rows.map { ($0.label, $0) })
+        let ordered: [String]
+        switch selectedAxis {
+        case .stakes:
+            ordered = byLabel.keys.sorted { stakeSortKey($0) < stakeSortKey($1) }
+        case .location:
+            ordered = byLabel.keys.sorted()
+        case .timeOfDay:
+            let order = ["Morning", "Afternoon", "Evening", "Night"]
+            ordered = order.filter { byLabel[$0] != nil }
+        case .dayOfWeek:
+            let order = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+            ordered = order.filter { byLabel[$0] != nil }
+        case .sessionDuration:
+            let order = DurationBucket.allCases.map(\.rawValue)
+            ordered = order.filter { byLabel[$0] != nil }
+        case .tablesPlayed:
+            ordered = byLabel.keys.sorted { (Int($0) ?? Int.max) < (Int($1) ?? Int.max) }
+        }
+        return ordered.compactMap { byLabel[$0] }
+    }
+
+    // MARK: - Body
 
     var body: some View {
         ZStack {
             Color.appBackground.ignoresSafeArea()
-            if allSessions.isEmpty && filterState.activeFilterCount == 0 {
-                emptyState(filtersActive: false)
-            } else if filteredSessions.isEmpty {
-                emptyState(filtersActive: filterState.activeFilterCount > 0)
-            } else {
-                mainContent
+            VStack(spacing: 0) {
+                sourceSelector
+                Divider().background(Color(hex: "#2A2A2A"))
+                if hasNoSessions {
+                    emptyState(filtersActive: false)
+                } else if hasNoFilteredSessions {
+                    emptyState(filtersActive: filterState.activeFilterCount(for: selectedSource) > 0)
+                } else {
+                    mainContent
+                }
             }
         }
-        .navigationTitle(platform.displayName)
+        .animation(.easeInOut(duration: 0.25), value: selectedSource)
+        .navigationTitle("Analytics")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .navigationBarTrailing) {
-                Button {
-                    showFilterSheet = true
-                } label: {
+                Button { showFilterSheet = true } label: {
                     Image(systemName: "line.3.horizontal.decrease")
                         .font(.system(size: 16, weight: .semibold))
                         .foregroundColor(.appGold)
                         .frame(width: 36, height: 36)
                 }
                 .overlay(alignment: .topTrailing) {
-                    if filterState.activeFilterCount > 0 {
-                        Text("\(filterState.activeFilterCount)")
+                    if filterState.activeFilterCount(for: selectedSource) > 0 {
+                        Text("\(filterState.activeFilterCount(for: selectedSource))")
                             .font(.system(size: 11, weight: .bold))
                             .foregroundColor(.black)
                             .frame(width: 20, height: 20)
-                            .background(
-                                Circle().fill(
-                                    Color(red: 201.0 / 255.0, green: 180.0 / 255.0, blue: 122.0 / 255.0, opacity: 1.0)
-                                )
-                            )
+                            .background(Circle().fill(Color(hex: "#C9B47A")))
                             .compositingGroup()
                             .offset(CGSize(width: -3, height: 2))
                     }
@@ -380,11 +476,66 @@ struct OnlinePlatformAnalyticsView: View {
             }
         }
         .sheet(isPresented: $showFilterSheet) {
-            AnalyticsFilterSheet(filterState: filterState, primaryAxis: selectedAxis)
+            AnalyticsFilterSheet(
+                filterState: filterState,
+                primaryAxis: selectedAxis,
+                isLiveSource: selectedSource == .live
+            )
         }
-        .onAppear { loadSessions() }
+        .onAppear { setupInitialSource() }
+        .onChange(of: coordinator.selectedTab) { _, tab in
+            if tab == 2 { loadSessions() }
+        }
         .id(refreshID)
     }
+
+    // MARK: - Source Selector
+
+    var sourceSelector: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                // Live pill — larger, semibold, visually primary
+                Button { switchSource(.live) } label: {
+                    Text("Live")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundColor(selectedSource == .live ? Color(hex: "#000000") : Color(hex: "#FFFFFF"))
+                        .padding(.horizontal, 18)
+                        .padding(.vertical, 9)
+                        .background(
+                            Capsule().fill(selectedSource == .live ? Color(hex: "#C9B47A") : Color(hex: "#1A1A1A"))
+                        )
+                }
+                .buttonStyle(.plain)
+
+                // Platform pills — standard size, secondary prominence
+                ForEach(sortedPlatforms) { platform in
+                    Button { switchSource(.platform(platform)) } label: {
+                        Text(platform.displayName)
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundColor(
+                                selectedSource == .platform(platform)
+                                    ? Color(hex: "#000000")
+                                    : Color(hex: "#8A8A8A")
+                            )
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 7)
+                            .background(
+                                Capsule().fill(
+                                    selectedSource == .platform(platform)
+                                        ? Color(hex: "#C9B47A")
+                                        : Color(hex: "#1A1A1A")
+                                )
+                            )
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 10)
+        }
+    }
+
+    // MARK: - Main Content
 
     var mainContent: some View {
         ScrollView {
@@ -401,21 +552,19 @@ struct OnlinePlatformAnalyticsView: View {
             .animation(.easeInOut(duration: 0.25), value: hasActiveSession)
         }
         .refreshable {
-            loadSessions()
+            loadSessions(resetFilters: false)
             refreshID = UUID()
         }
     }
 
-    // MARK: - Filter Row (Filters pill + BB/$ toggle)
+    // MARK: - Filter Row
 
     var filterRow: some View {
         HStack {
-            if filterState.activeFilterCount > 0 {
-                Button {
-                    filterState.clearAll()
-                } label: {
+            if filterState.activeFilterCount(for: selectedSource) > 0 {
+                Button { filterState.clearAll() } label: {
                     HStack(spacing: 6) {
-                        Text("\(filterState.activeFilterCount) Filters")
+                        Text("\(filterState.activeFilterCount(for: selectedSource)) Filters")
                             .font(.system(size: 13, weight: .medium))
                             .foregroundColor(.white)
                         Text("×")
@@ -430,9 +579,7 @@ struct OnlinePlatformAnalyticsView: View {
                 }
                 .buttonStyle(.plain)
             }
-
             Spacer()
-
             HStack(spacing: 0) {
                 ForEach(MetricMode.allCases, id: \.self) { mode in
                     Button {
@@ -474,33 +621,38 @@ struct OnlinePlatformAnalyticsView: View {
         }
     }
 
-    // MARK: - Overall Performance Card
+    // MARK: - Performance Card
 
     var performanceCard: some View {
         let s = summaryStats
+        let isLive = (selectedSource == .live)
+        let noHandsForLive = isLive && s.hands == 0
+
         let primaryValue: Double? = metricMode == .bb ? s.bb100 : s.dollar100
         let hourlyValue: Double? = metricMode == .bb ? s.bbHour : s.dollarHour
 
         let primaryLabel = metricMode == .bb ? "BB/100" : "$/100"
-        let hourlyLabel = metricMode == .bb ? "BB/HOUR" : "CAD/HOUR"
+        let hourlyLabel = metricMode == .bb ? "BB/HOUR" : "$/HOUR"
 
         let primaryText: String = {
             guard let v = primaryValue else { return "—" }
-            let unit = metricMode == .bb ? "BB" : baseCurrency
             if metricMode == .bb {
                 return v >= 0 ? String(format: "%.1f BB", v) : String(format: "-%.1f BB", abs(v))
             } else {
-                return v >= 0 ? String(format: "%.2f \(unit)", v) : String(format: "-%.2f \(unit)", abs(v))
+                return v >= 0
+                    ? String(format: "%.2f \(baseCurrency)", v)
+                    : String(format: "-%.2f \(baseCurrency)", abs(v))
             }
         }()
 
         let hourlyText: String = {
             guard let v = hourlyValue else { return "—" }
-            let unit = metricMode == .bb ? "BB" : baseCurrency
             if metricMode == .bb {
                 return v >= 0 ? String(format: "%.1f BB", v) : String(format: "-%.1f BB", abs(v))
             } else {
-                return v >= 0 ? String(format: "%.2f \(unit)", v) : String(format: "-%.2f \(unit)", abs(v))
+                return v >= 0
+                    ? String(format: "%.2f \(baseCurrency)", v)
+                    : String(format: "-%.2f \(baseCurrency)", abs(v))
             }
         }()
 
@@ -508,9 +660,7 @@ struct OnlinePlatformAnalyticsView: View {
         let hourlyColor: Color = (hourlyValue ?? 0) >= 0 ? Color(hex: "#4CAF50") : Color(hex: "#F44336")
 
         return HStack(spacing: 0) {
-            Color(hex: "#C9B47A")
-                .frame(width: 3)
-
+            Color(hex: "#C9B47A").frame(width: 3)
             VStack(alignment: .leading, spacing: 16) {
                 VStack(alignment: .leading, spacing: 4) {
                     Text(primaryLabel)
@@ -521,8 +671,12 @@ struct OnlinePlatformAnalyticsView: View {
                         .foregroundColor(primaryValue == nil ? .white : primaryColor)
                         .minimumScaleFactor(0.6)
                         .lineLimit(1)
+                    if noHandsForLive && metricMode == .bb {
+                        Text("Log hands to see BB metrics")
+                            .font(.caption)
+                            .foregroundColor(.appSecondary)
+                    }
                 }
-
                 VStack(alignment: .leading, spacing: 4) {
                     Text(hourlyLabel)
                         .font(.system(size: 11, weight: .semibold))
@@ -545,14 +699,14 @@ struct OnlinePlatformAnalyticsView: View {
     // MARK: - Axis Selector Tabs
 
     var axisSelectorTabs: some View {
+        let axes = availableAxes
         let canScrollLeft = axisScrollOffset > 8
         let canScrollRight = axisScrollOffset < (axisContentWidth - axisContainerWidth - 8)
-
         return VStack(spacing: 0) {
             ZStack {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 20) {
-                        ForEach(AnalyticsAxis.allCases, id: \.self) { axis in
+                        ForEach(axes, id: \.self) { axis in
                             Button {
                                 selectedAxis = axis
                                 filterState.clearFilterForAxis(axis)
@@ -612,10 +766,7 @@ struct OnlinePlatformAnalyticsView: View {
                 }
             }
             .padding(.bottom, 10)
-
-            Rectangle()
-                .fill(Color(hex: "#2A2A2A"))
-                .frame(height: 1)
+            Rectangle().fill(Color(hex: "#2A2A2A")).frame(height: 1)
         }
     }
 
@@ -628,107 +779,226 @@ struct OnlinePlatformAnalyticsView: View {
                     .font(.system(size: 11, weight: .semibold))
                     .foregroundColor(Color(hex: "#8A8A8A"))
                     .frame(maxWidth: .infinity, alignment: .leading)
-
                 Text(metricMode == .bb ? "BB/100" : "$/100")
                     .font(.system(size: 11, weight: .semibold))
                     .foregroundColor(Color(hex: "#8A8A8A"))
                     .frame(width: 64, alignment: .trailing)
-
                 Text(metricMode == .bb ? "BB/HR" : "$/HR")
                     .font(.system(size: 11, weight: .semibold))
                     .foregroundColor(Color(hex: "#8A8A8A"))
                     .frame(width: 60, alignment: .trailing)
-
                 Text("TIME")
                     .font(.system(size: 11, weight: .semibold))
                     .foregroundColor(Color(hex: "#8A8A8A"))
                     .frame(width: 48, alignment: .trailing)
             }
             .padding(.vertical, 10)
-
-            Rectangle()
-                .fill(Color(hex: "#2A2A2A"))
-                .frame(height: 1)
-
+            Rectangle().fill(Color(hex: "#2A2A2A")).frame(height: 1)
             VStack(spacing: 6) {
                 ForEach(breakdownRows) { row in
                     AnalyticsTableRow(row: row, metricMode: metricMode, axis: selectedAxis)
                 }
             }
             .padding(.top, 6)
-
         }
     }
 
     // MARK: - Empty State
 
     func emptyState(filtersActive: Bool) -> some View {
-        VStack(spacing: 12) {
-            Image(systemName: "chart.bar.xaxis")
-                .font(.system(size: 48))
-                .foregroundColor(.appGold)
-            Text("No Sessions")
-                .font(.system(size: 17, weight: .medium))
-                .foregroundColor(.appPrimary)
-            Text("Play some sessions on this platform to see analytics")
-                .font(.system(size: 14))
-                .foregroundColor(.appSecondary)
-                .multilineTextAlignment(.center)
-            if filtersActive {
-                Text("Try clearing your filters")
-                    .font(.system(size: 13))
+        VStack {
+            Spacer()
+            VStack(spacing: 12) {
+                Image(systemName: "chart.bar.xaxis")
+                    .font(.system(size: 48))
                     .foregroundColor(.appGold)
+                Text("No Sessions")
+                    .font(.system(size: 17, weight: .medium))
+                    .foregroundColor(.appPrimary)
+                Text(emptyStateMessage)
+                    .font(.system(size: 14))
+                    .foregroundColor(.appSecondary)
+                    .multilineTextAlignment(.center)
+                if filtersActive {
+                    Text("Try clearing your filters")
+                        .font(.system(size: 13))
+                        .foregroundColor(.appGold)
+                }
+            }
+            .padding()
+            Spacer()
+        }
+    }
+
+    var emptyStateMessage: String {
+        switch selectedSource {
+        case .live: return "Record some live sessions to see analytics"
+        case .platform(let p): return "Play some sessions on \(p.displayName) to see analytics"
+        }
+    }
+
+    // MARK: - Source Switching
+
+    func setupInitialSource() {
+        restoreSourceFromDefaults()
+        loadSessions()
+    }
+
+    func restoreSourceFromDefaults() {
+        guard savedSourceKey != "live" else { selectedSource = .live; return }
+        if let uuid = UUID(uuidString: savedSourceKey) {
+            let req: NSFetchRequest<Platform> = Platform.fetchRequest()
+            req.predicate = NSPredicate(format: "id == %@", uuid as CVarArg)
+            if let p = try? viewContext.fetch(req).first {
+                selectedSource = .platform(p)
+                return
             }
         }
-        .padding()
+        selectedSource = .live
+    }
+
+    func switchSource(_ source: AnalyticsSource) {
+        guard source != selectedSource else { return }
+        selectedSource = source
+        if !availableAxes.contains(selectedAxis) { selectedAxis = .stakes }
+        savedSourceKey = source.persistenceKey
+        loadSessions(resetFilters: true)
+    }
+
+    // MARK: - Load Sessions
+
+    /// - Parameter resetFilters: `true` when the analytics source or tab context changed — neutral filters. `false` for pull-to-refresh — keep current filter choices and intersect with new metadata.
+    func loadSessions(resetFilters: Bool = true) {
+        switch selectedSource {
+        case .live:
+            let req: NSFetchRequest<LiveCash> = LiveCash.fetchRequest()
+            req.predicate = NSPredicate(format: "endTime != nil")
+            req.sortDescriptors = [NSSortDescriptor(keyPath: \LiveCash.startTime, ascending: false)]
+            let sessions = (try? viewContext.fetch(req)) ?? []
+            allLiveSessions = sessions
+            allOnlineSessions = []
+
+            let stakes = Set(sessions.map { liveStakesLabel(for: $0) }).sorted()
+            filterState.allStakes = stakes
+
+            var keyToLabel: [String: String] = [:]
+            var keys = Set<String>()
+            for s in sessions {
+                let k = liveLocationKey(for: s)
+                keys.insert(k)
+                if keyToLabel[k] == nil {
+                    keyToLabel[k] = liveLocationLabel(for: s)
+                }
+            }
+            let sortedKeys = keys.sorted {
+                (keyToLabel[$0] ?? $0).localizedCaseInsensitiveCompare(keyToLabel[$1] ?? $1) == .orderedAscending
+            }
+            filterState.allLocationKeys = sortedKeys
+            filterState.locationLabelsByKey = keyToLabel
+
+            filterState.allTables = []
+            if resetFilters {
+                filterState.resetSelectionsToNeutral()
+            } else {
+                mergeSelectedStakes(with: Set(stakes))
+                mergeSelectedLocationKeys(with: keys)
+            }
+
+        case .platform(let platform):
+            let req: NSFetchRequest<OnlineCash> = OnlineCash.fetchRequest()
+            req.predicate = NSPredicate(format: "platform == %@ AND endTime != nil", platform)
+            req.sortDescriptors = [NSSortDescriptor(keyPath: \OnlineCash.startTime, ascending: false)]
+            let sessions = (try? viewContext.fetch(req)) ?? []
+            allOnlineSessions = sessions
+            allLiveSessions = []
+
+            let stakes = Set(sessions.map { onlineStakesLabel(for: $0) }).sorted()
+            filterState.allStakes = stakes
+
+            let tableInts = Set(sessions.map { tablesCount(for: $0) }).sorted()
+            filterState.allTables = tableInts
+
+            filterState.allLocationKeys = []
+            filterState.locationLabelsByKey = [:]
+            if resetFilters {
+                filterState.resetSelectionsToNeutral()
+            } else {
+                mergeSelectedStakes(with: Set(stakes))
+                mergeSelectedTablesPlayed(with: Set(tableInts))
+            }
+        }
+    }
+
+    private func mergeSelectedStakes(with available: Set<String>) {
+        if available.isEmpty {
+            filterState.selectedStakes = []
+            return
+        }
+        filterState.selectedStakes = filterState.selectedStakes.intersection(available)
+        if filterState.selectedStakes.isEmpty { filterState.selectedStakes = available }
+    }
+
+    private func mergeSelectedLocationKeys(with available: Set<String>) {
+        if available.isEmpty {
+            filterState.selectedLocationKeys = []
+            return
+        }
+        filterState.selectedLocationKeys = filterState.selectedLocationKeys.intersection(available)
+        if filterState.selectedLocationKeys.isEmpty { filterState.selectedLocationKeys = available }
+    }
+
+    private func mergeSelectedTablesPlayed(with available: Set<Int>) {
+        if available.isEmpty {
+            filterState.selectedTablesPlayed = []
+            return
+        }
+        filterState.selectedTablesPlayed = filterState.selectedTablesPlayed.intersection(available)
+        if filterState.selectedTablesPlayed.isEmpty { filterState.selectedTablesPlayed = available }
     }
 
     // MARK: - Helpers
 
-    func loadSessions() {
-        let request: NSFetchRequest<OnlineCash> = OnlineCash.fetchRequest()
-        request.predicate = NSPredicate(format: "platform == %@", platform)
-        request.sortDescriptors = [NSSortDescriptor(keyPath: \OnlineCash.startTime, ascending: false)]
-        allSessions = (try? viewContext.fetch(request)) ?? []
-
-        // Derive all unique stakes
-        let stakes = Set(allSessions.map { stakesLabel(for: $0) }).sorted()
-        filterState.allStakes = stakes
-        // Ensure all stakes selected by default if not yet set
-        if filterState.selectedStakes.isEmpty {
-            filterState.selectedStakes = Set(stakes)
-        }
-
-        let tables = Set(allSessions.map { tablesLabel(for: $0) }).sorted {
-            (Int($0) ?? Int.max) < (Int($1) ?? Int.max)
-        }
-        filterState.allTables = tables
-        let tableSet = Set(tables)
-        filterState.selectedTables = filterState.selectedTables.intersection(tableSet)
-        if filterState.selectedTables.isEmpty {
-            filterState.selectedTables = Set(tables)
-        }
+    func liveSessionHours(_ s: LiveCash) -> Double {
+        guard let start = s.startTime, let end = s.endTime else { return s.duration }
+        return max(0, end.timeIntervalSince(start) / 3600.0 - s.breakTime / 60.0)
     }
 
-    func sessionHours(_ session: OnlineCash) -> Double {
-        guard let start = session.startTime, let end = session.endTime else {
-            return session.duration
+    func onlineSessionHours(_ s: OnlineCash) -> Double {
+        guard let start = s.startTime, let end = s.endTime else { return s.duration }
+        return max(0, end.timeIntervalSince(start) / 3600.0 - s.breakTime / 60.0)
+    }
+
+    func liveStakesLabel(for s: LiveCash) -> String {
+        "\(AppFormatter.blindValue(s.smallBlind))/\(AppFormatter.blindValue(s.bigBlind))"
+    }
+
+    func onlineStakesLabel(for s: OnlineCash) -> String {
+        "\(AppFormatter.blindValue(s.smallBlind))/\(AppFormatter.blindValue(s.bigBlind))"
+    }
+
+    func liveLocationKey(for s: LiveCash) -> String {
+        if let id = s.locationEntity?.id {
+            return id.uuidString
         }
-        let raw = end.timeIntervalSince(start) / 3600.0
-        let breakH = session.breakTime / 60.0
-        return max(0, raw - breakH)
+        return "legacy:\(s.location ?? "Unknown")"
     }
 
-    func stakesLabel(for session: OnlineCash) -> String {
-        let sb = AppFormatter.blindValue(session.smallBlind)
-        let bb = AppFormatter.blindValue(session.bigBlind)
-        return "\(sb)/\(bb)"
+    func liveLocationLabel(for s: LiveCash) -> String {
+        s.locationEntity?.name ?? s.location ?? "Unknown"
     }
 
-    func timeOfDayLabel(for session: OnlineCash) -> String {
-        guard let start = session.startTime else { return "Night" }
-        let hour = Calendar.current.component(.hour, from: start)
-        switch hour {
+    func tablesCount(for s: OnlineCash) -> Int {
+        let t = Int(s.tables)
+        return t <= 0 ? 1 : t
+    }
+
+    func tablesLabel(for s: OnlineCash) -> String {
+        "\(tablesCount(for: s))"
+    }
+
+    func timeOfDayLabel(forDate date: Date?) -> String {
+        guard let date = date else { return "Night" }
+        switch Calendar.current.component(.hour, from: date) {
         case 6..<12: return "Morning"
         case 12..<18: return "Afternoon"
         case 18..<23: return "Evening"
@@ -736,10 +1006,9 @@ struct OnlinePlatformAnalyticsView: View {
         }
     }
 
-    func dayOfWeekLabel(for session: OnlineCash) -> String {
-        guard let start = session.startTime else { return "Monday" }
-        let weekday = Calendar.current.component(.weekday, from: start)
-        switch weekday {
+    func dayOfWeekLabel(forDate date: Date?) -> String {
+        guard let date = date else { return "Monday" }
+        switch Calendar.current.component(.weekday, from: date) {
         case 1: return "Sunday"
         case 2: return "Monday"
         case 3: return "Tuesday"
@@ -751,33 +1020,36 @@ struct OnlinePlatformAnalyticsView: View {
         }
     }
 
-    func tablesLabel(for session: OnlineCash) -> String {
-        let t = Int(session.tables)
-        if t <= 0 { return "1" }
-        return "\(t)"
+    func liveGroupKey(for s: LiveCash) -> String {
+        switch selectedAxis {
+        case .stakes: return liveStakesLabel(for: s)
+        case .location: return liveLocationLabel(for: s)
+        case .timeOfDay: return timeOfDayLabel(forDate: s.startTime)
+        case .dayOfWeek: return dayOfWeekLabel(forDate: s.startTime)
+        case .sessionDuration: return DurationBucket.bucket(for: liveSessionHours(s)).rawValue
+        case .tablesPlayed: return "1"
+        }
+    }
+
+    func onlineGroupKey(for s: OnlineCash) -> String {
+        switch selectedAxis {
+        case .stakes: return onlineStakesLabel(for: s)
+        case .location: return "Online"
+        case .timeOfDay: return timeOfDayLabel(forDate: s.startTime)
+        case .dayOfWeek: return dayOfWeekLabel(forDate: s.startTime)
+        case .sessionDuration: return DurationBucket.bucket(for: onlineSessionHours(s)).rawValue
+        case .tablesPlayed: return tablesLabel(for: s)
+        }
     }
 
     func stakeSortKey(_ label: String) -> (Double, Double) {
         let parts = label.split(separator: "/")
         guard parts.count == 2 else { return (Double.greatestFiniteMagnitude, Double.greatestFiniteMagnitude) }
-        let sb = parseStakeAmount(String(parts[0]))
-        let bb = parseStakeAmount(String(parts[1]))
-        return (bb, sb)
+        return (parseStakeAmount(String(parts[1])), parseStakeAmount(String(parts[0])))
     }
 
     func parseStakeAmount(_ raw: String) -> Double {
-        let filtered = raw.filter { "0123456789.".contains($0) }
-        return Double(filtered) ?? Double.greatestFiniteMagnitude
-    }
-
-    func groupKey(for session: OnlineCash) -> String {
-        switch selectedAxis {
-        case .stakes: return stakesLabel(for: session)
-        case .timeOfDay: return timeOfDayLabel(for: session)
-        case .dayOfWeek: return dayOfWeekLabel(for: session)
-        case .sessionDuration: return DurationBucket.bucket(for: sessionHours(session)).rawValue
-        case .tablesPlayed: return tablesLabel(for: session)
-        }
+        Double(raw.filter { "0123456789.".contains($0) }) ?? Double.greatestFiniteMagnitude
     }
 }
 
@@ -824,9 +1096,7 @@ struct AnalyticsTableRow: View {
 
     static func formatHours(_ hours: Double) -> String {
         let rounded = (hours * 10).rounded() / 10
-        if rounded.truncatingRemainder(dividingBy: 1) == 0 {
-            return "\(Int(rounded))h"
-        }
+        if rounded.truncatingRemainder(dividingBy: 1) == 0 { return "\(Int(rounded))h" }
         return String(format: "%.1fh", rounded)
     }
 
@@ -890,8 +1160,6 @@ struct AnalyticsTableRow: View {
                 .font(.system(size: 14, weight: .semibold))
                 .foregroundColor(Color(hex: "#8A8A8A"))
                 .frame(width: width, alignment: .trailing)
-                .lineLimit(1)
-                .minimumScaleFactor(0.7)
         }
     }
 
@@ -906,11 +1174,12 @@ struct AnalyticsTableRow: View {
     }
 }
 
-// MARK: - Filter Sheet
+// MARK: - Analytics Filter Sheet
 
 struct AnalyticsFilterSheet: View {
-    @ObservedObject var filterState: OnlineAnalyticsFilterState
+    @ObservedObject var filterState: AnalyticsFilterState
     let primaryAxis: AnalyticsAxis
+    let isLiveSource: Bool
     @Environment(\.dismiss) private var dismiss
 
     @State private var openSection: String? = nil
@@ -921,11 +1190,17 @@ struct AnalyticsFilterSheet: View {
                 Color.appBackground.ignoresSafeArea()
                 ScrollView {
                     VStack(spacing: 0) {
-                        filterSection(title: "Date Range", key: "dateRange", activeCount: filterState.dateRange == .allTime ? 0 : 1) {
+                        filterSection(title: "Date Range", key: "dateRange",
+                            activeCount: filterState.dateRange == .allTime ? 0 : 1) {
                             dateRangeContent
                         }
                         filterSection(title: "Stakes", key: "stakes", activeCount: stakesActiveCount) {
                             stakesContent
+                        }
+                        if isLiveSource {
+                            filterSection(title: "Location", key: "location", activeCount: locationActiveCount) {
+                                locationContent
+                            }
                         }
                         filterSection(title: "Time of Day", key: "timeOfDay", activeCount: timeOfDayActiveCount) {
                             timeOfDayContent
@@ -936,8 +1211,10 @@ struct AnalyticsFilterSheet: View {
                         filterSection(title: "Session Duration", key: "duration", activeCount: durationActiveCount) {
                             durationContent
                         }
-                        filterSection(title: "Tables Played", key: "tables", activeCount: tablesActiveCount) {
-                            tablesContent
+                        if !isLiveSource {
+                            filterSection(title: "Tables Played", key: "tables", activeCount: tablesActiveCount) {
+                                tablesContent
+                            }
                         }
                     }
                     .padding(.horizontal, 16)
@@ -947,9 +1224,7 @@ struct AnalyticsFilterSheet: View {
             }
             .navigationTitle("Filters")
             .navigationBarTitleDisplayMode(.inline)
-            .safeAreaInset(edge: .bottom) {
-                sheetFooter
-            }
+            .safeAreaInset(edge: .bottom) { sheetFooter }
         }
         .presentationDetents([.medium, .large])
         .presentationBackground(Color.appBackground)
@@ -958,6 +1233,7 @@ struct AnalyticsFilterSheet: View {
     func sectionMatchesPrimaryAxis(key: String) -> Bool {
         switch (key, primaryAxis) {
         case ("stakes", .stakes): return true
+        case ("location", .location): return true
         case ("timeOfDay", .timeOfDay): return true
         case ("dayOfWeek", .dayOfWeek): return true
         case ("duration", .sessionDuration): return true
@@ -966,35 +1242,33 @@ struct AnalyticsFilterSheet: View {
         }
     }
 
-    // MARK: - Accordion Section
+    // MARK: Active Counts
 
     var stakesActiveCount: Int {
         guard !filterState.allStakes.isEmpty, filterState.selectedStakes != Set(filterState.allStakes) else { return 0 }
         return filterState.selectedStakes.count
     }
-
+    var locationActiveCount: Int {
+        guard !filterState.allLocationKeys.isEmpty, filterState.selectedLocationKeys != Set(filterState.allLocationKeys) else { return 0 }
+        return filterState.selectedLocationKeys.count
+    }
     var timeOfDayActiveCount: Int {
-        let defaults = Set(["Morning", "Afternoon", "Evening", "Night"])
-        guard filterState.selectedTimesOfDay != defaults else { return 0 }
-        return filterState.selectedTimesOfDay.count
+        let d = Set(["Morning", "Afternoon", "Evening", "Night"])
+        return filterState.selectedTimesOfDay == d ? 0 : filterState.selectedTimesOfDay.count
     }
-
     var dayOfWeekActiveCount: Int {
-        let defaults = Set(["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"])
-        guard filterState.selectedDaysOfWeek != defaults else { return 0 }
-        return filterState.selectedDaysOfWeek.count
+        let d = Set(["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"])
+        return filterState.selectedDaysOfWeek == d ? 0 : filterState.selectedDaysOfWeek.count
     }
-
     var durationActiveCount: Int {
-        let defaults = Set(DurationBucket.allCases)
-        guard filterState.selectedDurations != defaults else { return 0 }
-        return filterState.selectedDurations.count
+        filterState.selectedDurations == Set(DurationBucket.allCases) ? 0 : filterState.selectedDurations.count
+    }
+    var tablesActiveCount: Int {
+        guard !filterState.allTables.isEmpty, filterState.selectedTablesPlayed != Set(filterState.allTables) else { return 0 }
+        return filterState.selectedTablesPlayed.count
     }
 
-    var tablesActiveCount: Int {
-        guard !filterState.allTables.isEmpty, filterState.selectedTables != Set(filterState.allTables) else { return 0 }
-        return filterState.selectedTables.count
-    }
+    // MARK: Accordion Section
 
     func filterSection<Content: View>(title: String, key: String, activeCount: Int, @ViewBuilder content: () -> Content) -> some View {
         let isDisabled = sectionMatchesPrimaryAxis(key: key)
@@ -1008,8 +1282,7 @@ struct AnalyticsFilterSheet: View {
             } label: {
                 HStack {
                     Text(title)
-                        .font(.subheadline)
-                        .fontWeight(.semibold)
+                        .font(.subheadline).fontWeight(.semibold)
                         .foregroundColor(isDisabled ? .appSecondary : .white)
                     if activeCount > 0 && !isDisabled {
                         Text("\(activeCount)")
@@ -1021,15 +1294,13 @@ struct AnalyticsFilterSheet: View {
                     }
                     if isDisabled {
                         Text("Already used as primary breakdown")
-                            .font(.system(size: 12))
-                            .italic()
+                            .font(.system(size: 12)).italic()
                             .foregroundColor(.appSecondary)
                     }
                     Spacer()
                     if !isDisabled {
                         Image(systemName: openSection == key ? "chevron.up" : "chevron.down")
-                            .font(.caption)
-                            .foregroundColor(.appSecondary)
+                            .font(.caption).foregroundColor(.appSecondary)
                     }
                 }
                 .padding(.horizontal, 16)
@@ -1043,34 +1314,26 @@ struct AnalyticsFilterSheet: View {
                     .padding(.bottom, 12)
                     .transition(.opacity.combined(with: .move(edge: .top)))
             }
-
         }
         .background(Color.appSurface)
         .cornerRadius(10)
         .padding(.bottom, 8)
     }
 
-    // MARK: - Section Contents
+    // MARK: Section Contents
 
     var dateRangeContent: some View {
         VStack(spacing: 8) {
             ForEach(AnalyticsDateRange.allCases, id: \.self) { range in
-                Button {
-                    filterState.dateRange = range
-                } label: {
+                Button { filterState.dateRange = range } label: {
                     HStack {
-                        Text(range.rawValue)
-                            .font(.subheadline)
-                            .foregroundColor(.appPrimary)
+                        Text(range.rawValue).font(.subheadline).foregroundColor(.appPrimary)
                         Spacer()
                         if filterState.dateRange == range {
-                            Image(systemName: "checkmark")
-                                .foregroundColor(.appGold)
-                                .font(.subheadline)
+                            Image(systemName: "checkmark").foregroundColor(.appGold).font(.subheadline)
                         }
                     }
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 10)
+                    .padding(.horizontal, 12).padding(.vertical, 10)
                     .background(filterState.dateRange == range ? Color.appGold.opacity(0.1) : Color.appSurface)
                     .cornerRadius(8)
                 }
@@ -1082,11 +1345,19 @@ struct AnalyticsFilterSheet: View {
         FlowLayout(spacing: 8) {
             ForEach(filterState.allStakes, id: \.self) { stake in
                 filterChip(label: stake, isSelected: filterState.selectedStakes.contains(stake)) {
-                    if filterState.selectedStakes.contains(stake) {
-                        filterState.selectedStakes.remove(stake)
-                    } else {
-                        filterState.selectedStakes.insert(stake)
-                    }
+                    if filterState.selectedStakes.contains(stake) { filterState.selectedStakes.remove(stake) }
+                    else { filterState.selectedStakes.insert(stake) }
+                }
+            }
+        }
+    }
+
+    var locationContent: some View {
+        FlowLayout(spacing: 8) {
+            ForEach(filterState.allLocationKeys, id: \.self) { key in
+                filterChip(label: filterState.locationLabelsByKey[key] ?? key, isSelected: filterState.selectedLocationKeys.contains(key)) {
+                    if filterState.selectedLocationKeys.contains(key) { filterState.selectedLocationKeys.remove(key) }
+                    else { filterState.selectedLocationKeys.insert(key) }
                 }
             }
         }
@@ -1096,11 +1367,8 @@ struct AnalyticsFilterSheet: View {
         FlowLayout(spacing: 8) {
             ForEach(["Morning", "Afternoon", "Evening", "Night"], id: \.self) { time in
                 filterChip(label: time, isSelected: filterState.selectedTimesOfDay.contains(time)) {
-                    if filterState.selectedTimesOfDay.contains(time) {
-                        filterState.selectedTimesOfDay.remove(time)
-                    } else {
-                        filterState.selectedTimesOfDay.insert(time)
-                    }
+                    if filterState.selectedTimesOfDay.contains(time) { filterState.selectedTimesOfDay.remove(time) }
+                    else { filterState.selectedTimesOfDay.insert(time) }
                 }
             }
         }
@@ -1110,11 +1378,8 @@ struct AnalyticsFilterSheet: View {
         FlowLayout(spacing: 8) {
             ForEach(["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"], id: \.self) { day in
                 filterChip(label: day, isSelected: filterState.selectedDaysOfWeek.contains(day)) {
-                    if filterState.selectedDaysOfWeek.contains(day) {
-                        filterState.selectedDaysOfWeek.remove(day)
-                    } else {
-                        filterState.selectedDaysOfWeek.insert(day)
-                    }
+                    if filterState.selectedDaysOfWeek.contains(day) { filterState.selectedDaysOfWeek.remove(day) }
+                    else { filterState.selectedDaysOfWeek.insert(day) }
                 }
             }
         }
@@ -1124,11 +1389,8 @@ struct AnalyticsFilterSheet: View {
         FlowLayout(spacing: 8) {
             ForEach(DurationBucket.allCases, id: \.self) { bucket in
                 filterChip(label: bucket.rawValue, isSelected: filterState.selectedDurations.contains(bucket)) {
-                    if filterState.selectedDurations.contains(bucket) {
-                        filterState.selectedDurations.remove(bucket)
-                    } else {
-                        filterState.selectedDurations.insert(bucket)
-                    }
+                    if filterState.selectedDurations.contains(bucket) { filterState.selectedDurations.remove(bucket) }
+                    else { filterState.selectedDurations.insert(bucket) }
                 }
             }
         }
@@ -1137,12 +1399,9 @@ struct AnalyticsFilterSheet: View {
     var tablesContent: some View {
         FlowLayout(spacing: 8) {
             ForEach(filterState.allTables, id: \.self) { t in
-                filterChip(label: t, isSelected: filterState.selectedTables.contains(t)) {
-                    if filterState.selectedTables.contains(t) {
-                        filterState.selectedTables.remove(t)
-                    } else {
-                        filterState.selectedTables.insert(t)
-                    }
+                filterChip(label: "\(t)", isSelected: filterState.selectedTablesPlayed.contains(t)) {
+                    if filterState.selectedTablesPlayed.contains(t) { filterState.selectedTablesPlayed.remove(t) }
+                    else { filterState.selectedTablesPlayed.insert(t) }
                 }
             }
         }
@@ -1151,17 +1410,13 @@ struct AnalyticsFilterSheet: View {
     func filterChip(label: String, isSelected: Bool, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             HStack(spacing: 6) {
-                Text(label)
-                    .font(.subheadline)
-                    .foregroundColor(isSelected ? .black : .white)
+                Text(label).font(.subheadline).foregroundColor(isSelected ? .black : .white)
                 if isSelected {
                     Image(systemName: "checkmark")
-                        .font(.system(size: 10, weight: .bold))
-                        .foregroundColor(.black)
+                        .font(.system(size: 10, weight: .bold)).foregroundColor(.black)
                 }
             }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 8)
+            .padding(.horizontal, 14).padding(.vertical, 8)
             .background(isSelected ? Color.appGold : Color(hex: "#1A1A1A"))
             .cornerRadius(20)
         }
@@ -1170,24 +1425,17 @@ struct AnalyticsFilterSheet: View {
 
     var sheetFooter: some View {
         HStack {
-            Button("Clear All") {
-                filterState.clearAll()
-            }
-            .foregroundColor(.appSecondary)
+            Button("Clear All") { filterState.clearAll() }
+                .foregroundColor(.appSecondary)
             Spacer()
-            Button("Apply") {
-                dismiss()
-            }
-            .font(.subheadline)
-            .fontWeight(.semibold)
-            .foregroundColor(.black)
-            .padding(.horizontal, 24)
-            .padding(.vertical, 10)
-            .background(Color.appGold)
-            .cornerRadius(10)
+            Button("Apply") { dismiss() }
+                .font(.subheadline).fontWeight(.semibold)
+                .foregroundColor(.black)
+                .padding(.horizontal, 24).padding(.vertical, 10)
+                .background(Color.appGold)
+                .cornerRadius(10)
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 12)
+        .padding(.horizontal, 16).padding(.vertical, 12)
         .background(Color.appBackground)
     }
 }

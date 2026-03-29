@@ -35,14 +35,17 @@ All transitions use `.easeInOut(duration: 0.35)` opacity animation via `withAnim
 
 ### Tab Structure
 
-`MainTabView` hosts a `TabView` with 4 root destinations. Each tab is wrapped in its own `NavigationStack`, so push navigation is fully isolated per tab.
+`MainTabView` hosts a `TabView` with 5 root destinations. Each tab is wrapped in its own `NavigationStack`, so push navigation is fully isolated per tab.
 
 | Tab Index | Label | Icon | Root View |
 |-----------|-------|------|-----------|
 | 0 | Sessions | `rectangle.stack.fill` | `SessionsListView` |
 | 1 | Stats | `chart.bar.fill` | `StatsView` |
-| 2 | Platforms | `building.columns.fill` | `PlatformsListView` |
-| 3 | More | `ellipsis` | `MoreView` |
+| 2 | Analytics | `chart.bar.xaxis.ascending` | `AnalyticsView` |
+| 3 | Platforms | `building.columns.fill` | `PlatformsListView` |
+| 4 | More | `ellipsis` | `MoreView` |
+
+`MainTabView` owns `@StateObject private var analyticsFilterState = AnalyticsFilterState()` and injects it into the Analytics tab only via `.environmentObject(analyticsFilterState)` so filter lifecycle is tied to the tab shell, not to `AnalyticsView`’s body.
 
 ### More Tab Navigation (Push)
 
@@ -53,9 +56,18 @@ All transitions use `.easeInOut(duration: 0.35)` opacity animation via `withAnim
 - Adjustments → `AdjustmentsListView`
 - Settings → `SettingsView`
 
+### Unified Analytics Screen
+
+`AnalyticsView` (in `Views/Platforms/OnlinePlatformAnalyticsView.swift`) is a single screen that handles analytics for all session types via a source selector. It replaces the former per-platform `OnlinePlatformAnalyticsView`.
+
+- **Entry:** Analytics tab only (tab index 2). Last-used source is restored from UserDefaults key `analyticsSelectedSource` (`"live"` or a platform UUID string).
+- Source selector is a horizontally scrollable pill row: "Live" (all LiveCash sessions) followed by Platform pills sorted by most recently played.
+- **`AnalyticsFilterState`** is a shared `ObservableObject` created once in `MainTabView` and passed as an `@EnvironmentObject`. It holds secondary filters (date range, stakes, times of day, days of week, duration buckets, tables played for online, location keys for live). Secondary filters are **not** persisted to disk. They reset to neutral (no active filters) whenever the user changes the analytics source (Live or any platform) and whenever the user switches away from the Analytics tab and back. The filter badge counts only filters applicable to the **current** source. Last-selected source (Live vs platform) remains stored under `analyticsSelectedSource`.
+- Per-source breakdown axes: Live uses Stakes/Location/Time of Day/Day of Week/Session Duration; Online uses Stakes/Time of Day/Day of Week/Session Duration/Tables Played.
+
 ### Sheet vs Push Navigation
 
-**Push navigation (NavigationLink):** Used for all drill-down flows — session detail, platform detail, analytics, location detail, adjustment detail, charts, calendar.
+**Push navigation (NavigationLink):** Used for all drill-down flows — session detail, platform detail, location detail, adjustment detail, charts, calendar. Analytics is reached only via the Analytics tab (`AnalyticsView` as root), not via push from other tabs.
 
 **Sheets:** Used for creation/entry flows that should feel modal:
 - Add session (type picker → form)
@@ -83,7 +95,7 @@ All transitions use `.easeInOut(duration: 0.35)` opacity animation via `withAnim
 
 - `@FetchRequest` is used in all views that display Core Data lists. Changes are automatically propagated by Core Data's change tracking.
 - `@ObservedObject` is used for individual `NSManagedObject` instances (e.g., `PlatformDetailView(platform:)`, `LiveSessionDetailView(session:)`).
-- `@StateObject` is used for `FilterState`, `ChartFilterState`, and `ActiveSessionCoordinator` — objects that own their lifecycle.
+- `@StateObject` is used for `FilterState`, `ChartFilterState`, and `ActiveSessionCoordinator` — objects that own their lifecycle. `AnalyticsFilterState` is owned by `MainTabView` as a `@StateObject` and supplied to `AnalyticsView` as an `@EnvironmentObject`.
 - `@EnvironmentObject` is used to share `ActiveSessionCoordinator` and `FilterState` across the view hierarchy without prop drilling.
 
 ### State Management

@@ -187,45 +187,29 @@ struct PlatformDetailView: View {
     // MARK: - Action Buttons
 
     var actionButtons: some View {
-        VStack(spacing: 10) {
-            HStack(spacing: 8) {
-                Button {
-                    if hasUnverifiedSession {
-                        showUnverifiedSessionAlert = true
-                    } else {
-                        showDeposit = true
-                    }
-                } label: {
-                    actionPill(title: "Deposit", systemImage: "arrow.down.circle.fill", tint: Color(hex: "#F44336"))
+        HStack(spacing: 8) {
+            Button {
+                if hasUnverifiedSession {
+                    showUnverifiedSessionAlert = true
+                } else {
+                    showDeposit = true
                 }
-                Button {
-                    if hasUnverifiedSession {
-                        showUnverifiedSessionAlert = true
-                    } else {
-                        showWithdrawal = true
-                    }
-                } label: {
-                    actionPill(title: "Withdraw", systemImage: "arrow.up.circle.fill", tint: Color(hex: "#4CAF50"))
-                }
-                Button {
-                    showAdjustment = true
-                } label: {
-                    actionPill(title: "Adjust", systemImage: "plusminus.circle.fill", tint: .appGold)
-                }
-            }
-            NavigationLink {
-                OnlinePlatformAnalyticsView(platform: platform)
-                    .environment(\.managedObjectContext, viewContext)
             } label: {
-                Label("Analytics", systemImage: "chart.bar.xaxis")
-                    .font(.subheadline)
-                    .fontWeight(.semibold)
-                    .foregroundColor(.appGold)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 12)
-                    .background(Color.appSurface)
-                    .cornerRadius(12)
-                    .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.appGold.opacity(0.4), lineWidth: 1))
+                actionPill(title: "Deposit", systemImage: "arrow.down.circle.fill", tint: Color(hex: "#F44336"))
+            }
+            Button {
+                if hasUnverifiedSession {
+                    showUnverifiedSessionAlert = true
+                } else {
+                    showWithdrawal = true
+                }
+            } label: {
+                actionPill(title: "Withdraw", systemImage: "arrow.up.circle.fill", tint: Color(hex: "#4CAF50"))
+            }
+            Button {
+                showAdjustment = true
+            } label: {
+                actionPill(title: "Adjust", systemImage: "plusminus.circle.fill", tint: .appGold)
             }
         }
     }

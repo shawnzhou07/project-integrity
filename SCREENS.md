@@ -254,14 +254,13 @@ If entered `balanceBefore` differs from `platform.currentBalance` by > 0.01, an 
 - **Performance section:** Hourly Rate, Avg Net Result, Net Result (BB), BB/Hour, BB/100 Hands
 - **Volume section:** Sessions count, Hours Played, Hands Played, Avg Session duration, Avg Buy-In, Total Tips
 - **Results section:** Win Rate, Winning Sessions, Losing Sessions, Biggest Win, Biggest Loss, Longest Session, Win Streak, Lose Streak
-- **Platform Breakdown:** Each platform's net result with "Analytics" shortcut button
+- **Platform Breakdown:** Each platform row shows name and net result; row tap → platform detail
 
 ### Actions
 - Filter button (toolbar) → `FilterSheetView` sheet
 - Charts FAB (bottom trailing) → `ChartsView` push
 - Calendar FAB (below Charts FAB) → `CalendarView` push
 - Platform row tap → `PlatformDetailView` push
-- Platform "Analytics" button → `OnlinePlatformAnalyticsView` push
 - Pull to refresh
 
 ### Business Rules
@@ -272,16 +271,40 @@ If entered `balanceBefore` differs from `platform.currentBalance` by > 0.01, an 
 
 ---
 
-## Online Platform Analytics
+## Analytics Screen
 
-**File:** `Views/Platforms/OnlinePlatformAnalyticsView.swift`
-**Entry Point:** Stats → Platform "Analytics" button; or Platform Detail → Analytics button
+**File:** `Views/Platforms/OnlinePlatformAnalyticsView.swift` (struct: `AnalyticsView`)
+**Entry Point:** Tab 2 (Analytics) only. Last-used source (Live vs platform) is restored from UserDefaults key `analyticsSelectedSource`.
+
+### Source Selector
+Horizontally scrollable pill row always visible at top, below nav bar:
+- **Live pill** — always first, `font size 15 semibold`, gold background when selected; white text on `#1A1A1A` when unselected. Visually primary.
+- **Platform pills** — one per Platform in Core Data, sorted by most recently played session. `font size 13 medium`, gold background when selected; `#8A8A8A` text on `#1A1A1A` when unselected.
+- Exactly one source always selected. Last-used persisted to UserDefaults key `analyticsSelectedSource` (`"live"` or platform UUID string).
 
 ### Data Displayed
-- 4 summary cards: BB/100, $/100 (platform currency), BB/Hour, $/Hour
-- Toggle: BB view ↔ $ view
-- Session breakdown table with per-session stats
-- Aggregate totals row
+- 3 summary stat cards: Sessions, Hours, Hands
+- BB/$ toggle (matched geometry animation)
+- Performance card: primary metric (BB/100 or $/100) + hourly metric (BB/HOUR or $/HOUR), left gold stripe
+- Axis selector tabs (horizontally scrollable, per-source axes)
+- Breakdown table: axis column + BB/100 or $/100 + BB/HR or $/HR + TIME
+
+### Per-Source Axes
+| Source | Available Axes |
+|--------|---------------|
+| Live | Stakes, Location, Time of Day, Day of Week, Session Duration |
+| Platform | Stakes, Time of Day, Day of Week, Session Duration, Tables Played |
+
+### Per-Source Secondary Filters
+| Source | Filter Options |
+|--------|---------------|
+| Live | Date Range, Stakes, Location, Time of Day, Day of Week, Session Duration |
+| Platform | Date Range, Stakes, Time of Day, Day of Week, Session Duration, Tables Played |
+
+Secondary filters reset to neutral when switching between Live and platforms or when leaving and re-entering the Analytics tab; they are not persisted across app restarts. The toolbar filter badge counts only filters applicable to the current source.
+
+### Live BB Metrics
+BB/100 and BB/HOUR are only shown when filtered sessions have `handsCount > 0`. Otherwise shows `—` with caption "Log hands to see BB metrics". $/HOUR is always available.
 
 ### Metrics Format
 | Card | Format |
@@ -350,7 +373,7 @@ Single source of truth for session row appearance. Any visual change to how a se
 ## Platforms List
 
 **File:** `Views/Platforms/PlatformsListView.swift`
-**Entry Point:** Tab 2 (Platforms)
+**Entry Point:** Tab 3 (Platforms)
 
 ### Data Displayed
 - Each platform row: name, net result (base currency), current balance (platform currency)
@@ -374,7 +397,7 @@ Single source of truth for session row appearance. Any visual change to how a se
 
 ### Sections
 1. **Balance card:** Current balance (large), platform currency, net result in base currency
-2. **Action buttons:** Deposit (red), Withdraw (green), Adjust (gold), Analytics (gold)
+2. **Action buttons:** Deposit (red), Withdraw (green), Adjust (gold)
 3. **Sessions section:** List of online sessions for this platform (NavigationLink to detail)
 4. **Deposits section:** All deposits with date, amount sent, amount received, method
 5. **Withdrawals section:** All withdrawals with status badge (pending/received), amounts, method
@@ -385,7 +408,6 @@ Single source of truth for session row appearance. Any visual change to how a se
 - Deposit → `DepositFormView` sheet
 - Withdraw → `WithdrawalFormView` sheet
 - Adjust → `AddAdjustmentView` sheet
-- Analytics → `OnlinePlatformAnalyticsView` push
 - Withdrawal row tap → options sheet (Mark Received / Mark Failed)
 - Delete Platform → confirmation alert (blocked if records exist)
 

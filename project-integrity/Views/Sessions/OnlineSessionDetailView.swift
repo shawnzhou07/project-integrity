@@ -231,7 +231,7 @@ struct OnlineSessionDetailView: View {
                         if let platform = selectedPlatform {
                             coordinator.platformIDForDeposit = platform.objectID
                         }
-                        coordinator.selectedTab = 2
+                        coordinator.selectedTab = 3
                         dismiss()
                     }
                     Button("Log Adjustment") {
@@ -239,7 +239,7 @@ struct OnlineSessionDetailView: View {
                         if let platform = selectedPlatform {
                             coordinator.adjustmentPlatformID = platform.objectID
                         }
-                        coordinator.selectedTab = 3
+                        coordinator.selectedTab = 4
                         dismiss()
                     }
                 } else {
@@ -248,7 +248,7 @@ struct OnlineSessionDetailView: View {
                         if let platform = selectedPlatform {
                             coordinator.platformIDForWithdrawal = platform.objectID
                         }
-                        coordinator.selectedTab = 2
+                        coordinator.selectedTab = 3
                         dismiss()
                     }
                     Button("Log Adjustment") {
@@ -256,7 +256,7 @@ struct OnlineSessionDetailView: View {
                         if let platform = selectedPlatform {
                             coordinator.adjustmentPlatformID = platform.objectID
                         }
-                        coordinator.selectedTab = 3
+                        coordinator.selectedTab = 4
                         dismiss()
                     }
                 }

@@ -94,14 +94,21 @@
 - No border by default
 - Verified sessions: gold border overlay (`lineWidth: 1.5`, `opacity: 0.45`)
 
-### Action Buttons (Deposit / Withdraw / Adjust / Analytics)
+### Action Buttons (Deposit / Withdraw / Adjust)
 - Style: Outlined — border in button's accent color, matching text and icon color
 - Deposit: red (`#F44336`)
 - Withdraw: green (`#4CAF50`)
 - Adjust: gold (`#C9B47A`)
-- Analytics: gold (`#C9B47A`)
 - Corner radius: 12pt
 - Layout: icon + label horizontal
+
+### Source Selector
+Horizontally scrollable pill row used in `AnalyticsView` to choose the active data source. Rules:
+- **Live pill** — always leftmost. `font(.system(size: 15, weight: .semibold))`. Gold (`#C9B47A`) background + black text when selected; `#1A1A1A` background + white (`#FFFFFF`) text when unselected. Padding: `18pt H / 9pt V`.
+- **Platform pills** — one per Platform, sorted by most-recently-played session. `font(.system(size: 13, weight: .medium))`. Gold background + black text when selected; `#1A1A1A` background + `#8A8A8A` text when unselected. Padding: `14pt H / 7pt V`.
+- The size and weight difference between Live and platform pills communicates that Live is the primary source.
+- Exactly one source is always selected — there is no "None" or "All" state.
+- Separated from content below by a `#2A2A2A` 1pt divider.
 
 ### Form Fields
 - **Editable:** `[Label] ... [gray currencyCode] [TextField]`
@@ -156,8 +163,9 @@
 |---|-------|------|
 | 1 | Sessions | `rectangle.stack.fill` |
 | 2 | Stats | `chart.bar.fill` |
-| 3 | Platforms | `building.columns.fill` |
-| 4 | More | `ellipsis` |
+| 3 | Analytics | `chart.bar.xaxis.ascending` |
+| 4 | Platforms | `building.columns.fill` |
+| 5 | More | `ellipsis` |
 
 ---
 
@@ -207,9 +215,9 @@
 
 ---
 
-## Online Platform Analytics — Summary Cards
+## Analytics Screen — Performance Card Metrics
 
-The four summary metric cards at the top of `OnlinePlatformAnalyticsView` follow these value formats:
+The performance card in `AnalyticsView` follows these value formats:
 
 | Card | Format |
 |------|--------|

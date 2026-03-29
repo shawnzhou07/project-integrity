@@ -6,6 +6,7 @@ import CoreData
 struct MainTabView: View {
     @Environment(\.managedObjectContext) private var viewContext
     @StateObject private var sessionCoordinator = ActiveSessionCoordinator()
+    @StateObject private var analyticsFilterState = AnalyticsFilterState()
 
     init() {
         // Navigation bar appearance
@@ -60,13 +61,24 @@ struct MainTabView: View {
             .tag(1)
 
             NavigationStack {
+                AnalyticsView()
+                    .environment(\.managedObjectContext, viewContext)
+                    .environmentObject(analyticsFilterState)
+            }
+            .safeAreaInset(edge: .bottom, spacing: 0) { floatingBar }
+            .tabItem {
+                Label("Analytics", systemImage: "chart.bar.xaxis.ascending")
+            }
+            .tag(2)
+
+            NavigationStack {
                 PlatformsListView()
             }
             .safeAreaInset(edge: .bottom, spacing: 0) { floatingBar }
             .tabItem {
                 Label("Platforms", systemImage: "building.columns.fill")
             }
-            .tag(2)
+            .tag(3)
 
             NavigationStack {
                 MoreView()
@@ -75,7 +87,7 @@ struct MainTabView: View {
             .tabItem {
                 Label("More", systemImage: "ellipsis")
             }
-            .tag(3)
+            .tag(4)
         }
         .environmentObject(sessionCoordinator)
         .fullScreenCover(isPresented: $sessionCoordinator.isFormPresented) {
