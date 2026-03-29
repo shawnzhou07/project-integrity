@@ -268,6 +268,17 @@ struct OnlineSessionEntryView: View {
                 ToolbarItem(placement: .navigationBarLeading) { leadingButton }
                 ToolbarItem(placement: .navigationBarTrailing) { trailingToolbarButton }
             }
+            .sheet(isPresented: $showPlatformPicker) {
+                PlatformPickerSheet(platforms: Array(platforms), selected: $selectedPlatform, onCreatePlatform: {
+                    showPlatformPicker = false
+                    coordinator.shouldOpenAddPlatform = true
+                    coordinator.selectedTab = 3
+                    coordinator.dismissForm()
+                }) {
+                    autoSaveIfActive()
+                    showPlatformPicker = false
+                }
+            }
     }
 
     private var baseForm: some View {
@@ -328,9 +339,7 @@ struct OnlineSessionEntryView: View {
     var platformSection: some View {
         Section {
             Button {
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                    showPlatformPicker = true
-                }
+                showPlatformPicker = true
             } label: {
                 HStack {
                     Text("Platform").foregroundColor(.appPrimary)
@@ -347,18 +356,6 @@ struct OnlineSessionEntryView: View {
             .listRowBackground(Color.appSurface)
         } header: {
             Text("Platform").foregroundColor(.appGold).textCase(nil)
-        }
-        .sheet(isPresented: $showPlatformPicker) {
-            PlatformPickerSheet(platforms: Array(platforms), selected: $selectedPlatform, onCreatePlatform: {
-                showPlatformPicker = false
-                coordinator.shouldOpenAddPlatform = true
-                coordinator.selectedTab = 3
-                coordinator.dismissForm()
-            }) {
-                autoSaveIfActive()
-                showPlatformPicker = false
-            }
-            .interactiveDismissDisabled(false)
         }
     }
 

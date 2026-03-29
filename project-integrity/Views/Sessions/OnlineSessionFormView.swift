@@ -84,6 +84,11 @@ struct OnlineSessionFormView: View {
         .scrollContentBackground(.hidden)
         .background(Color.appBackground)
         .selectAllOnFocus()
+        .sheet(isPresented: $showPlatformPicker) {
+            PlatformPickerSheet(platforms: Array(platforms), selected: $selectedPlatform) {
+                showPlatformPicker = false
+            }
+        }
         .onAppear {
             if selectedPlatform == nil, let first = platforms.first {
                 selectedPlatform = first
@@ -145,9 +150,7 @@ struct OnlineSessionFormView: View {
     var platformSection: some View {
         Section {
             Button {
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                    showPlatformPicker = true
-                }
+                showPlatformPicker = true
             } label: {
                 HStack {
                     Text("Platform")
@@ -167,12 +170,6 @@ struct OnlineSessionFormView: View {
             .listRowBackground(Color.appSurface)
         } header: {
             Text("Platform").foregroundColor(.appGold).textCase(nil)
-        }
-        .sheet(isPresented: $showPlatformPicker) {
-            PlatformPickerSheet(platforms: Array(platforms), selected: $selectedPlatform) {
-                showPlatformPicker = false
-            }
-            .interactiveDismissDisabled(false)
         }
     }
 
