@@ -684,6 +684,8 @@ struct SettingsView: View {
             return
         }
         do {
+            let didStartAccess = url.startAccessingSecurityScopedResource()
+            defer { if didStartAccess { url.stopAccessingSecurityScopedResource() } }
             let data = try Data(contentsOf: url)
             let decoder = JSONDecoder()
             decoder.dateDecodingStrategy = .iso8601

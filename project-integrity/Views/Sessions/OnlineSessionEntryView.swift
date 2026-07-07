@@ -3,6 +3,7 @@
 import SwiftUI
 import CoreData
 import Combine
+import UIKit
 
 struct OnlineSessionEntryView: View {
     @Environment(\.managedObjectContext) private var viewContext
@@ -596,6 +597,8 @@ struct OnlineSessionEntryView: View {
         session.endTime = endTime
         session.breakTime = breakTimeMinutes
         session.duration = max(0, endTime.timeIntervalSince(startTime) / 3600.0 - breakTimeMinutes / 60.0)
+        session.netProfitLoss = netResult
+        session.netProfitLossBase = netResultBase
         do {
             try viewContext.save()
             entryState = .stopped
@@ -631,6 +634,7 @@ struct OnlineSessionEntryView: View {
         session.notes = notes.isEmpty ? nil : notes
         do {
             try viewContext.save()
+            UINotificationFeedbackGenerator().notificationOccurred(.success)
             coordinator.dismissForm()
         } catch { print("Save error: \(error)") }
     }
@@ -681,8 +685,8 @@ struct OnlineSessionEntryView: View {
         gameType = session.gameType ?? "No Limit Hold'em"
         tableSize = Int(session.tableSize)
         tables = Int(session.tables)
-        balanceBefore = session.balanceBefore > 0 ? String(session.balanceBefore) : ""
-        balanceAfter = session.balanceAfter > 0 ? String(session.balanceAfter) : ""
+        balanceBefore = session.balanceBefore > 0 ? String(format: "%.2f", session.balanceBefore) : ""
+        balanceAfter = session.balanceAfter > 0 ? String(format: "%.2f", session.balanceAfter) : ""
         balanceAfterManuallyEdited = true
         handsOverride = session.handsCount > 0 ? String(session.handsCount) : ""
         notes = session.notes ?? ""

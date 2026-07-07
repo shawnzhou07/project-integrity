@@ -31,7 +31,7 @@ struct StatsView: View {
         animation: .default
     ) private var activeOnlineSessions: FetchedResults<OnlineCash>
 
-    @State private var includeAdjustments = true
+    @AppStorage("showAdjustmentsInStats") private var includeAdjustments = true
     @State private var showFilterSheet = false
     @StateObject private var filterState = FilterState()
     @State private var refreshID = UUID()

@@ -115,12 +115,12 @@ class FilterState: ObservableObject {
 
     func shouldIncludeLiveForSessions(_ session: LiveCash) -> Bool {
         guard shouldIncludeLiveBase(session) else { return false }
-        // Result filter
+        // Result filter — computed netResult (cashOut − buyIn) so stale stored values can't misfilter
         switch resultFilter {
         case .all: break
-        case .winning: if session.netProfitLoss <= 0 { return false }
-        case .losing: if session.netProfitLoss >= 0 { return false }
-        case .breakEven: if session.netProfitLoss != 0 { return false }
+        case .winning: if session.netResult <= 0 { return false }
+        case .losing: if session.netResult >= 0 { return false }
+        case .breakEven: if session.netResult != 0 { return false }
         }
         // Verification filter
         switch verificationFilter {

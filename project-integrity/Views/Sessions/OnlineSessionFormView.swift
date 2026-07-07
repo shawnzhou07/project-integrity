@@ -137,13 +137,7 @@ struct OnlineSessionFormView: View {
     }
 
     func updateSuggestedBlinds() {
-        if selectedPlatform == nil {
-            print("[SuggestedBlinds] Online updateSuggestedBlinds — selectedPlatform is nil, clearing")
-            suggestedBlinds = []
-            return
-        }
-        guard let platform = selectedPlatform else { return }
-        print("[SuggestedBlinds] Online updateSuggestedBlinds — platformId: \(platform.id?.uuidString ?? "nil")")
+        guard let platform = selectedPlatform else { suggestedBlinds = []; return }
         suggestedBlinds = SuggestedBlindsHelper.suggestionsForOnline(context: viewContext, platform: platform)
     }
 

@@ -43,16 +43,7 @@ extension Platform {
         let adjs = adjustmentsArray
         let platformCurr = displayCurrency
 
-        guard !deps.isEmpty || !withs.isEmpty || !adjs.isEmpty else { return 0 }
-
         if let anchor = anchorSession, let anchorEnd = anchor.endTime {
-            // Diagnostic: log all withdrawals to confirm membership and status
-            print("[currentBalance] Platform: \(displayName) | anchorEnd: \(anchorEnd) | balanceAfter: \(anchor.balanceAfter)")
-            for w in withs {
-                let afterAnchor = (w.date ?? .distantPast) > anchorEnd
-                print("[currentBalance]   withdrawal: requested=\(w.amountRequested) \(platformCurr), received=\(w.amountReceived), status=\(w.withdrawalStatus ?? "nil"), date=\(String(describing: w.date)), afterAnchor=\(afterAnchor)")
-            }
-
             var balance = anchor.balanceAfter
             // Only include records strictly after anchorEnd — everything on or before is already
             // baked into anchor.balanceAfter and must never be double-counted.
@@ -67,16 +58,9 @@ extension Platform {
             balance -= postAnchorWithdrawals
             balance += postAnchorAdjs
 
-            print("[currentBalance]   +postAnchorDeposits=\(postAnchorDeposits), -postAnchorWithdrawals=\(postAnchorWithdrawals), +postAnchorAdjs=\(postAnchorAdjs), final=\(balance)")
-
             // Defensive guard: a negative balance with a verified anchor session indicates a logic error.
             if balance < 0 {
                 print("[currentBalance] WARNING: computed balance \(balance) is negative for platform '\(displayName)'.")
-                print("[currentBalance]   anchor session endTime=\(anchorEnd), balanceAfter=\(anchor.balanceAfter)")
-                print("[currentBalance]   post-anchor deposits=\(postAnchorDeposits), post-anchor withdrawals=\(postAnchorWithdrawals), post-anchor adjs=\(postAnchorAdjs)")
-                for w in withs.filter({ ($0.date ?? .distantPast) > anchorEnd }) {
-                    print("[currentBalance]   included withdrawal: requested=\(w.amountRequested) \(platformCurr), status=\(w.withdrawalStatus ?? "nil"), date=\(String(describing: w.date))")
-                }
             }
 
             return balance
@@ -303,8 +287,6 @@ struct StatsResult {
     var adjustmentsTotal: Double = 0
     var totalBBWon: Double = 0
     var totalBuyIn: Double = 0
-    /// Number of sessions that contribute to totalBuyIn (live only; used for avg buy-in).
-    var buyInSessionCount: Int = 0
     var totalTips: Double = 0
     var biggestWin: Double = 0
     var biggestLoss: Double = 0
@@ -379,8 +361,9 @@ func computeStats(
 ) -> StatsResult {
     var result = StatsResult()
 
-    var filteredOnline = online.filter { dateFilter.isIncluded($0.sessionDate) }
-    var filteredLive = live.filter { dateFilter.isIncluded($0.sessionDate) }
+    // Only completed sessions appear in stats — active sessions (endTime == nil) are excluded.
+    var filteredOnline = online.filter { $0.endTime != nil && dateFilter.isIncluded($0.sessionDate) }
+    var filteredLive = live.filter { $0.endTime != nil && dateFilter.isIncluded($0.sessionDate) }
 
     switch sessionFilter {
     case .all: break
@@ -430,7 +413,6 @@ func computeStats(
             ? session.buyIn * session.exchangeRateBuyIn
             : session.buyIn * (session.exchangeRateToBase > 0 ? session.exchangeRateToBase : 1.0)
         result.totalBuyIn += buyInBase
-        result.buyInSessionCount += 1
         let tipsRate: Double = session.exchangeRateCashOut > 0
             ? session.exchangeRateCashOut
             : (session.exchangeRateToBase > 0 ? session.exchangeRateToBase : 1.0)
@@ -483,8 +465,9 @@ func computeStats(
 ) -> StatsResult {
     var result = StatsResult()
 
-    let filteredOnline = online.filter { filterState.shouldIncludeOnlineForStats($0) }
-    let filteredLive = live.filter { filterState.shouldIncludeLiveForStats($0) }
+    // Only completed sessions appear in stats — active sessions (endTime == nil) are excluded.
+    let filteredOnline = online.filter { $0.endTime != nil && filterState.shouldIncludeOnlineForStats($0) }
+    let filteredLive = live.filter { $0.endTime != nil && filterState.shouldIncludeLiveForStats($0) }
 
     for session in filteredOnline {
         let netBase = session.netProfitLossBase
@@ -519,7 +502,6 @@ func computeStats(
             ? session.buyIn * session.exchangeRateBuyIn
             : session.buyIn * (session.exchangeRateToBase > 0 ? session.exchangeRateToBase : 1.0)
         result.totalBuyIn += buyInBase
-        result.buyInSessionCount += 1
         let tipsRate: Double = session.exchangeRateCashOut > 0
             ? session.exchangeRateCashOut
             : (session.exchangeRateToBase > 0 ? session.exchangeRateToBase : 1.0)

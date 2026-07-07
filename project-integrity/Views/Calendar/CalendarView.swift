@@ -656,7 +656,8 @@ struct CalendarView: View {
                     isActive: s.isActive,
                     isUnverified: item.isUnverified,
                     isVerified: item.isVerified,
-                    showDate: false
+                    showDate: false,
+                    date: item.sessionDate
                 )
             }
             .buttonStyle(.plain)
@@ -674,7 +675,8 @@ struct CalendarView: View {
                     isActive: s.isActive,
                     isUnverified: item.isUnverified,
                     isVerified: item.isVerified,
-                    showDate: false
+                    showDate: false,
+                    date: item.sessionDate
                 )
             }
             .buttonStyle(.plain)

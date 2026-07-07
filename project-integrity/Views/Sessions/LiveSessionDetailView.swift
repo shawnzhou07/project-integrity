@@ -774,6 +774,7 @@ struct LiveSessionDetailView: View {
         guard duration > 0 else { showZeroDurationAlert = true; return }
         session.isVerified = true
         autoSave()
+        UINotificationFeedbackGenerator().notificationOccurred(.success)
         NotificationCenter.default.post(name: Notification.Name("sessionVerified"), object: nil)
     }
 
@@ -783,6 +784,8 @@ struct LiveSessionDetailView: View {
         session.endTime = endTime
         session.breakTime = breakTimeMinutes
         session.duration = max(0, endTime.timeIntervalSince(startTime) / 3600.0 - breakTimeMinutes / 60.0)
+        session.netProfitLoss = netPL
+        session.netProfitLossBase = netPLBase
         isSessionActive = false
         prevEndTime = endTime
         try? viewContext.save()

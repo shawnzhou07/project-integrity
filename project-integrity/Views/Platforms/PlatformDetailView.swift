@@ -3,6 +3,7 @@
 import SwiftUI
 import CoreData
 import Combine
+import UIKit
 
 struct PlatformDetailView: View {
     @ObservedObject var platform: Platform
@@ -1110,6 +1111,7 @@ struct MarkReceivedSheet: View {
             viewContext.refresh(p, mergeChanges: true)
             p.objectWillChange.send()
         }
+        UINotificationFeedbackGenerator().notificationOccurred(.success)
         NotificationCenter.default.post(name: Notification.Name("platformDataChanged"), object: nil)
         dismiss()
     }

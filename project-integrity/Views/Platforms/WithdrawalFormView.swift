@@ -27,6 +27,7 @@ struct WithdrawalFormView: View {
     @State private var notes = ""
     @State private var showConfirmation = false
     @State private var showUnverifiedSessionAlert = false
+    @State private var showInsufficientBalanceAlert = false
 
     @State private var alreadyReceived = false
     @State private var isForeignExchange = false
@@ -156,6 +157,11 @@ struct WithdrawalFormView: View {
         } message: {
             Text("You have an unverified session. Please verify your previous session before recording a withdrawal.")
         }
+        .alert("Insufficient Balance", isPresented: $showInsufficientBalanceAlert) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text("You cannot withdraw more than the platform balance of \(AppFormatter.currency(platform.currentBalance, code: platform.displayCurrency)).")
+        }
     }
 
     var amountsSection: some View {
@@ -279,6 +285,10 @@ struct WithdrawalFormView: View {
                     showUnverifiedSessionAlert = true
                     return
                 }
+                guard (Double(amountRequested) ?? 0) <= platform.currentBalance else {
+                    showInsufficientBalanceAlert = true
+                    return
+                }
                 performSave()
             } label: {
                 Text("Save Withdrawal")
@@ -316,8 +326,6 @@ struct WithdrawalFormView: View {
             withdrawal.amountReceived = 0
             withdrawal.receivedDate = nil
         }
-
-        print("DEBUG: withdrawal.platform set correctly: \(withdrawal.platform == platform)")
 
         do {
             try viewContext.save()

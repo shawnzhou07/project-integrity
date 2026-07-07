@@ -28,6 +28,8 @@ struct LocationsListView: View {
     }
 
     @State private var showAddLocation = false
+    @State private var locationToDelete: Location? = nil
+    @State private var showDeleteAlert = false
 
     var body: some View {
         ZStack {
@@ -45,9 +47,10 @@ struct LocationsListView: View {
                             }
                             .listRowBackground(Color.appSurface)
                             .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
-                            .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                            .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                                 Button(role: .destructive) {
-                                    deleteLocation(loc)
+                                    locationToDelete = loc
+                                    showDeleteAlert = true
                                 } label: {
                                     Label("Delete", systemImage: "trash")
                                 }
@@ -79,6 +82,17 @@ struct LocationsListView: View {
         .sheet(isPresented: $showAddLocation) {
             AddLocationSheet()
                 .environment(\.managedObjectContext, viewContext)
+        }
+        .alert("Delete \(locationToDelete?.displayName ?? "Location")?", isPresented: $showDeleteAlert) {
+            Button("Delete", role: .destructive) {
+                if let loc = locationToDelete { deleteLocation(loc) }
+                locationToDelete = nil
+            }
+            Button("Cancel", role: .cancel) {
+                locationToDelete = nil
+            }
+        } message: {
+            Text("Past sessions will keep the location name. This cannot be undone.")
         }
     }
 

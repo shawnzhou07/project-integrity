@@ -100,6 +100,7 @@ struct ChartsView: View {
         switch chartFilterState.sessionType {
         case .all, .live:
             for s in liveSessions {
+                guard s.endTime != nil else { continue }
                 guard chartFilterState.isDateIncluded(s.sessionDate) else { continue }
                 if let locID = chartFilterState.selectedLocationID {
                     guard s.locationEntity?.id == locID else { continue }
@@ -117,6 +118,7 @@ struct ChartsView: View {
         switch chartFilterState.sessionType {
         case .all, .online:
             for s in onlineSessions {
+                guard s.endTime != nil else { continue }
                 guard chartFilterState.isDateIncluded(s.sessionDate) else { continue }
                 if let platID = chartFilterState.selectedPlatformID {
                     guard s.platform?.id == platID else { continue }

@@ -138,7 +138,3 @@ The following features are confirmed present in the codebase:
 - Player tracking feature
 - Tournament session tracking
 - iCloud backup / CloudKit sync
-- Apple Watch companion app
-- Home screen widget
-- Maestro automated UI test suite
-- App Store submission

@@ -3,6 +3,7 @@
 import SwiftUI
 import CoreData
 import Combine
+import UIKit
 
 struct LiveSessionEntryView: View {
     @Environment(\.managedObjectContext) private var viewContext
@@ -619,6 +620,8 @@ struct LiveSessionEntryView: View {
         session.endTime = endTime
         session.breakTime = breakTimeMinutes
         session.duration = max(0, endTime.timeIntervalSince(startTime) / 3600.0 - breakTimeMinutes / 60.0)
+        session.netProfitLoss = netResult
+        session.netProfitLossBase = netResultBase
         do {
             try viewContext.save()
             entryState = .stopped
@@ -658,6 +661,7 @@ struct LiveSessionEntryView: View {
         session.notes = notes.isEmpty ? nil : notes
         do {
             try viewContext.save()
+            UINotificationFeedbackGenerator().notificationOccurred(.success)
             coordinator.dismissForm()
         } catch { print("Save error: \(error)") }
     }

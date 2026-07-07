@@ -137,19 +137,31 @@ struct PlatformsListView: View {
         .onChange(of: coordinator.platformIDForDeposit) { _, _ in handleCoordinatorTriggers() }
         .onChange(of: coordinator.platformIDForWithdrawal) { _, _ in handleCoordinatorTriggers() }
         .alert(deleteAlertTitle, isPresented: $showDeleteAlert) {
-            Button("Delete", role: .destructive) {
-                if let p = platformToDelete {
-                    viewContext.delete(p)
-                    try? viewContext.save()
+            if platformToDeleteHasRecords {
+                Button("OK", role: .cancel) {
+                    platformToDelete = nil
                 }
-                platformToDelete = nil
-            }
-            Button("Cancel", role: .cancel) {
-                platformToDelete = nil
+            } else {
+                Button("Delete", role: .destructive) {
+                    if let p = platformToDelete {
+                        viewContext.delete(p)
+                        try? viewContext.save()
+                    }
+                    platformToDelete = nil
+                }
+                Button("Cancel", role: .cancel) {
+                    platformToDelete = nil
+                }
             }
         } message: {
             Text(deleteAlertMessage)
         }
+    }
+
+    var platformToDeleteHasRecords: Bool {
+        guard let p = platformToDelete else { return false }
+        return !p.onlineSessionsArray.isEmpty || !p.depositsArray.isEmpty ||
+               !p.withdrawalsArray.isEmpty || !p.adjustmentsArray.isEmpty
     }
 
     func performRefresh() async {
@@ -185,7 +197,9 @@ struct PlatformsListView: View {
     }
 
     var deleteAlertTitle: String {
-        "Delete \(platformToDelete?.displayName ?? "Platform")?"
+        platformToDeleteHasRecords
+            ? "Cannot Delete \(platformToDelete?.displayName ?? "Platform")"
+            : "Delete \(platformToDelete?.displayName ?? "Platform")?"
     }
 
     var deleteAlertMessage: String {
@@ -193,12 +207,14 @@ struct PlatformsListView: View {
         let sessions = p.onlineSessionsArray.count
         let deposits = p.depositsArray.count
         let withdrawals = p.withdrawalsArray.count
+        let adjustments = p.adjustmentsArray.count
         var parts: [String] = []
         if sessions > 0 { parts.append("\(sessions) session\(sessions == 1 ? "" : "s")") }
         if deposits > 0 { parts.append("\(deposits) deposit\(deposits == 1 ? "" : "s")") }
         if withdrawals > 0 { parts.append("\(withdrawals) withdrawal\(withdrawals == 1 ? "" : "s")") }
+        if adjustments > 0 { parts.append("\(adjustments) adjustment\(adjustments == 1 ? "" : "s")") }
         if parts.isEmpty { return "This cannot be undone." }
-        return "This will also delete \(parts.joined(separator: ", ")). This cannot be undone."
+        return "This platform has \(parts.joined(separator: ", ")). Platforms with existing records cannot be deleted."
     }
 
     var emptyState: some View {

@@ -427,8 +427,11 @@ struct SessionRowView: View {
                         .font(.system(size: 12, weight: .regular))
                         .foregroundColor(.appGold)
                         .lineLimit(1)
+                        .onAppear {
+                            elapsed = max(0, Date().timeIntervalSince(date))
+                        }
                         .onReceive(timer) { _ in
-                            elapsed += 1
+                            elapsed = max(0, Date().timeIntervalSince(date))
                         }
                 } else {
                     Text(AppFormatter.duration(duration))
